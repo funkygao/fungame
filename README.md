@@ -34,6 +34,13 @@ Features
     
     - we're using sonar
 
+*   performance aware
+
+    - we EXPLAIN each DB query to log
+    - of course, we need xdebug/xhprof
+    - request log is easy to replay
+        - simulate real player requests
+
 *   fully tested ActiveRecord lib
 
     - DB flush buffer
