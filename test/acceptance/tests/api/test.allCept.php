@@ -2,7 +2,7 @@
 $I = new ApiTester($scenario);
 
 $myId = random_string(20);
-$I->wantTo("Make sure the whole DragonWar backend works fine!");
+$I->wantTo("Make sure the whole game backend works fine!");
 
 list($uid, $city_id, $user_data) = login_with_deviceid($I, $myId);
 

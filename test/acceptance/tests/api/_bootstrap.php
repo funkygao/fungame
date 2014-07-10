@@ -1,5 +1,5 @@
 <?php
-require_once(__DIR__ . '/../../../../v2/init.php');
+require_once(__DIR__ . '/../../../../main/init.php');
 
 function login_with_deviceid($I, $deviceId) {
     call_dragonwar($I, 'call', 'init', array(
