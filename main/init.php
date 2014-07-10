@@ -23,13 +23,8 @@ defined('WEB_ROOT') or define('WEB_ROOT', DOC_ROOT . 'docroot' . DIRECTORY_SEPAR
 
 defined('ASSETS_PATH') or define('ASSETS_PATH', WEB_ROOT . 'assets' . DIRECTORY_SEPARATOR);
 
-// the current path
-defined('V2_PATH') or define('V2_PATH', DOC_ROOT . 'v2' . DIRECTORY_SEPARATOR);
-
-// the classes under v2
-defined('V2CLASSES_PATH') or define('V2CLASSES_PATH', DOC_ROOT . 'v2' . DIRECTORY_SEPARATOR . 'classes' . DIRECTORY_SEPARATOR);
-
-// the libraries under v2
+defined('V2_PATH') or define('V2_PATH', DOC_ROOT . 'main' . DIRECTORY_SEPARATOR);
+defined('V2CLASSES_PATH') or define('V2CLASSES_PATH', DOC_ROOT . 'main' . DIRECTORY_SEPARATOR . 'classes' . DIRECTORY_SEPARATOR);
 defined('V2LIB_PATH') or define('V2LIB_PATH', V2_PATH . 'libraries' . DIRECTORY_SEPARATOR);
 set_include_path(get_include_path() . PATH_SEPARATOR . V2LIB_PATH);
 

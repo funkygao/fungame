@@ -18,7 +18,7 @@
     <target name="lint">
         <apply executable="php" failonerror="true">
             <arg value="-l" />
-            <fileset dir="${basedir}/v2/classes">
+            <fileset dir="${basedir}/main/classes">
                 <include name="**/*.php" />
             </fileset>
 
@@ -48,10 +48,10 @@
     </target>
 
     <target name="doc">
-        <exec dir="${basedir}/v2/classes" executable="phpdoc" failonerror="true">
+        <exec dir="${basedir}/main/classes" executable="phpdoc" failonerror="true">
             <arg value="run" />
             <arg value="-d" />
-            <arg value="${basedir}/v2/classes" />
+            <arg value="${basedir}/main/classes" />
             <arg value="-t" />
             <arg value="${basedir}/build/apidoc" />
         </exec>
@@ -68,14 +68,14 @@
         <exec executable="phploc" failonerror="true">
             <arg value="--log-csv" />
             <arg value="${basedir}/build/logs/phploc.csv" />
-            <arg path="${basedir}/v2/classes" />
+            <arg path="${basedir}/main/classes" />
         </exec>
         <echo>check out ${basedir}/build/logs/phploc.csv</echo>
     </target>
 
     <target name="phpmd" description="Perform project mess detection using PHPMD creating a log file for the continuous integration server">
         <exec executable="phpmd">
-            <arg path="${basedir}/v2/classes" />
+            <arg path="${basedir}/main/classes" />
             <arg value="xml" />
             <arg value="codesize,unusedcode,naming" />
             <arg value="--reportfile" />
@@ -87,7 +87,7 @@
     <target name="phpcs" description="Check code with PHP Code Sniffer">
         <exec executable="phpcs">
             <arg value="-n" />
-            <arg path="${basedir}/v2/classes" />
+            <arg path="${basedir}/main/classes" />
         </exec>
     </target> 
 

@@ -28,7 +28,7 @@
  *
  */
 
-require_once realpath(__DIR__ . "/../..") . '/v2/init.php';
+require_once realpath(__DIR__ . "/../..") . '/main/init.php';
 
 ini_set('memory_limit','4G');
 

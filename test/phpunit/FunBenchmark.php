@@ -1,6 +1,6 @@
 <?php
 
-require_once realpath(__DIR__ . "/../..") . '/v2/init.php';
+require_once realpath(__DIR__ . "/../..") . '/main/init.php';
 
 /**
  * All benchmark file ends with 'Bench', e,g. ModelBench.php
