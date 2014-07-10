@@ -26,8 +26,6 @@ Features
 
 *   betst practice of coding standard
 
-    - [coding standard] coding.rst
-
 *   continuous integration ready
 
     - we're using apache ant with jenkins
