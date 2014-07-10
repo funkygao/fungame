@@ -57,7 +57,7 @@ Features
 *   logger facility
 
 *   simple front controller
-    - docroot/api/index.php
+    - https://github.com/funplus/fungame/blob/master/docroot/api/index.php
 
 *   integration with automan
 
@@ -65,6 +65,7 @@ Features
     - add annotation(java) to php service layer
     - auto create Models
     - auto create api wiki page
+        - build the bridge between frontend and backend dev
     - auto create integration test scripts
 
 -   best of all
