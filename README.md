@@ -26,6 +26,16 @@ Features
 
 *   betst practice of coding standard
 
+    - [coding standard] coding.rst
+
+*   continuous integration ready
+
+    - we're using apache ant with jenkins
+
+*   code quality monitoring
+    
+    - we're using sonar
+
 *   fully tested ActiveRecord lib
 
     - flush feature
