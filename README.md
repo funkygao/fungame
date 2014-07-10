@@ -41,6 +41,7 @@ Features
     - phpunit complete
     - standard procedure of realizing Models
     - automatically generate Models for developers
+        - you write sql, automodel helps you generate php code
 
 *   base class for Service/Manager/Model/Driver layers
 
