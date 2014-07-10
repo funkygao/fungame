@@ -23,6 +23,7 @@ Features
     - framework directory layout
     - phpunit layout
     - acceptance test layout
+    - coding standard
 
 *   betst practice of coding standard
 
