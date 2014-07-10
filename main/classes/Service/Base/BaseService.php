@@ -13,13 +13,6 @@ abstract class BaseService {
         REPLY_SERVER_TIME = 'time';
 
     /**
-     * Request input verifier[validator].
-     *
-     * @var \Utils\VerifyInputs
-     */
-    private static $_verifier = NULL;
-
-    /**
      * @var \System\ResponseHandler
      */
     private static $_response;
@@ -57,14 +50,6 @@ abstract class BaseService {
 
     public final function __clone() {
         throw new \Exception('You can not clone a singleton.');
-    }
-
-    protected final function _verifyInt( /* $arg1, $arg2, ... */) {
-        if (self::$_verifier === NULL) {
-            self::$_verifier = \Utils\VerifyInputs::getInstance();
-        }
-
-        call_user_func_array(array(self::$_verifier, 'int'), func_get_args());
     }
 
     /**

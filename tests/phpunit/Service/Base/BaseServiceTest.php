@@ -1,12 +1,9 @@
 <?php
 
-require_once realpath(__DIR__ . '/../') . "/FunTestCaseBase.php";
+require_once realpath(__DIR__ . '/../../') . "/FunTestCaseBase.php";
 
 class FooExtendsBaseService extends \Service\Base\BaseService {
     public function verifyInt() {
-        foreach (func_get_args() as $arg) {
-            $this->_verifyInt($arg);
-        }
     }
 }
 
