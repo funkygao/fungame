@@ -2,7 +2,7 @@
 
 require_once realpath(__DIR__ . '/../') . "/FunTestCaseBase.php";
 
-class FooExtendsBaseService extends \Services\Base\BaseService {
+class FooExtendsBaseService extends \Service\Base\BaseService {
     public function verifyInt() {
         foreach (func_get_args() as $arg) {
             $this->_verifyInt($arg);
@@ -10,7 +10,7 @@ class FooExtendsBaseService extends \Services\Base\BaseService {
     }
 }
 
-class BarExtendsBaseService extends \Services\Base\BaseService {
+class BarExtendsBaseService extends \Service\Base\BaseService {
 }
 
 class BaseServiceTest extends FunTestCaseBase {

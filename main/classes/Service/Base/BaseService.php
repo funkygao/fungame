@@ -30,11 +30,6 @@ abstract class BaseService {
     private static $_request;
 
     /**
-     * @var \Manager\MetricsManager
-     */
-    protected $_metricsManager;
-
-    /**
      * @param \System\RequestHandler $request
      * @param \System\ResponseHandler $response
      * @return BaseService
@@ -57,9 +52,7 @@ abstract class BaseService {
         return $instances[$clsName];
     }
 
-    // child can override this, but KEEP it protected
     protected function __construct() {
-        $this->_metricsManager = \Manager\MetricsManager::getInstance();
     }
 
     public final function __clone() {

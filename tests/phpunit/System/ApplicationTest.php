@@ -8,7 +8,7 @@ class ApplicationTest extends FunTestCaseBase {
         $app = System\Application::getInstance(System\RequestHandler::getInstance(),
             System\ResponseHandler::getInstance());
         $controller = $app->buildController('Call');
-        $this->assertInstanceOf('\Services\CallService', $controller);
+        $this->assertInstanceOf('\Service\CallService', $controller);
     }
 
 }

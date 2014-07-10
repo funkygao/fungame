@@ -133,7 +133,7 @@ final class Application
     /**
      * @param string $controllerClass
      * @param string $method
-     * @return \Services\Base\BaseService
+     * @return \Service\Base\BaseService
      * @throws HttpNotFoundException
      */
     public static function buildController($controllerClass, $method = '') {
@@ -142,7 +142,7 @@ final class Application
         }
 
         $controllerClass = ucfirst($controllerClass) . 'Service';
-        $controllerClass = "Services\\$controllerClass";
+        $controllerClass = "Service\\$controllerClass";
         if (!class_exists($controllerClass)) {
             throw new HttpNotFoundException("Class does not exist: $controllerClass");
         }
