@@ -24,8 +24,7 @@ Features
     - phpunit layout
     - acceptance test layout
     - coding standard
-
-*   best practice of coding standard
+    - best practices
 
 *   continuous integration ready
 
