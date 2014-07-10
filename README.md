@@ -36,7 +36,8 @@ Features
 
 *   fully tested ActiveRecord lib
 
-    - flush feature
+    - DB flush buffer
+    - multiple level caching
     - phpunit complete
     - standard procedure of realizing Models
     - automatically generate Models for developers
@@ -57,6 +58,10 @@ Features
     - auto create Models
     - auto create api wiki page
     - auto create integration test scripts
+
+-   best of all
+    
+    - it is easy to read and extend
 
 
 LogicalLayer
