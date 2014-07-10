@@ -1,0 +1,16 @@
+#!/bin/sh
+#===============================
+# run all acceptance test suites
+#===============================
+php codecept.phar build
+#php codecept.phar run --debug acceptance
+
+#-----------------------
+# available targets:
+# prod, master, dev, gaopeng, kaihong, jipeng, jay
+#-----------------------
+target=master
+if [ $# == 1 ]; then
+    target=$1
+fi
+php codecept.phar run api --steps --html --no-colors --debug --env $target

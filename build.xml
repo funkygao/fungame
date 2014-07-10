@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- use ant to manage project, simpler than phing -->
+
+<project name="DragonWars" default="help">
+    <target name="build" depends="assertProdBuild" />
+    <target name="qa" depends="prepare,phpmd,phpcs" />
+
+    <target name="clean" description="Cleanup build artifacts">
+        <delete dir="${basedir}/build/"/>
+    </target>
+
+    <target name="prepare" depends="clean" description="Prepare for build">
+        <mkdir dir="${basedir}/build/coverage"/>
+        <mkdir dir="${basedir}/build/logs"/>
+        <mkdir dir="${basedir}/build/apidoc"/>
+    </target>
+
+    <target name="lint">
+        <apply executable="php" failonerror="true">
+            <arg value="-l" />
+            <fileset dir="${basedir}/v2/classes">
+                <include name="**/*.php" />
+            </fileset>
+
+            <fileset dir="${basedir}/tests">
+                <include name="**/*.php" />
+            </fileset>
+        </apply>
+    </target>
+
+    <target name="help">
+        <echo>+----------------------------------------+</echo>
+        <echo>|         avaliable targets              |</echo>
+        <echo>+----------------------------------------+</echo>
+        <echo>build        Build php project</echo>
+        <echo>doc          Generate phpdoc</echo>
+        <echo>dbinit       Reinitialize DB tables</echo>
+        <echo>size         Measuring the size of our PHP project</echo>
+        <echo>test         Run unit test cases with coverage report</echo>
+        <echo>qa           Measuring the quality of our PHP project</echo>
+        <echo>lint         Syntax check</echo>
+        <echo />
+        <echo>assertProdBuild</echo>
+        <echo>assertMasterBuild</echo>
+        <echo>assertDevBuild</echo>
+        <echo />
+        <echo>assertAll</echo>
+    </target>
+
+    <target name="doc">
+        <exec dir="${basedir}/v2/classes" executable="phpdoc" failonerror="true">
+            <arg value="run" />
+            <arg value="-d" />
+            <arg value="${basedir}/v2/classes" />
+            <arg value="-t" />
+            <arg value="${basedir}/build/apidoc" />
+        </exec>
+        <echo>check out ${basedir}/build/apidoc/index.html</echo>
+    </target>
+
+    <target name="dbinit" description="Reinitialize DB tables">
+        <exec dir="${basedir}/sql" executable="php" failonerror="true">
+            <arg value="${basedir}/sql/initDB.sh" />
+        </exec>
+    </target>
+
+    <target name="size" description="Measure project size using PHPLOC" depends="prepare">
+        <exec executable="phploc" failonerror="true">
+            <arg value="--log-csv" />
+            <arg value="${basedir}/build/logs/phploc.csv" />
+            <arg path="${basedir}/v2/classes" />
+        </exec>
+        <echo>check out ${basedir}/build/logs/phploc.csv</echo>
+    </target>
+
+    <target name="phpmd" description="Perform project mess detection using PHPMD creating a log file for the continuous integration server">
+        <exec executable="phpmd">
+            <arg path="${basedir}/v2/classes" />
+            <arg value="xml" />
+            <arg value="codesize,unusedcode,naming" />
+            <arg value="--reportfile" />
+            <arg value="${basedir}/build/logs/pmd.xml" />
+        </exec>
+        <echo>check out ${basedir}/build/logs/pmd.xml</echo>
+    </target>
+
+    <target name="phpcs" description="Check code with PHP Code Sniffer">
+        <exec executable="phpcs">
+            <arg value="-n" />
+            <arg path="${basedir}/v2/classes" />
+        </exec>
+    </target> 
+
+    <target name="assertAll" depends="assertDevBuild,assertMasterBuild,assertProdBuild" />
+
+    <target name="assertProdBuild">
+        <exec dir="${basedir}/tests/acceptance" executable="sh" failonerror="true">
+            <arg value="${basedir}/tests/acceptance/runAll" />
+            <arg value="prod" />
+        </exec>
+    </target>
+
+    <target name="assertDevBuild"> 
+        <exec dir="${basedir}/tests/acceptance" executable="sh" failonerror="true">
+            <arg value="${basedir}/tests/acceptance/runAll" />
+            <arg value="dev" />
+        </exec>
+    </target>
+
+    <target name="assertMasterBuild">
+        <exec dir="${basedir}/tests/acceptance" executable="sh" failonerror="true">
+            <arg value="${basedir}/tests/acceptance/runAll" />
+            <arg value="master" />
+        </exec>
+    </target>
+
+    <target name="test" depends="dbinit">
+        <exec dir="${basedir}/tests/phpunit/" executable="phpunit" failonerror="false" description="Run unit tests with PHPUnit">
+            <env key="APPLICATION_ENV" value="testing"/>
+            <arg line="--verbose --stderr -d memory_limit=4G" />   
+        </exec>
+    </target>
+
+</project>
