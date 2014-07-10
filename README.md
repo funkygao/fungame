@@ -25,7 +25,7 @@ Features
     - acceptance test layout
     - coding standard
 
-*   betst practice of coding standard
+*   best practice of coding standard
 
 *   continuous integration ready
 
