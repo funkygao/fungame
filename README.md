@@ -1,4 +1,4 @@
-game scaffold
+fungame
 ==============
 
 A quick prototype game backend framework.

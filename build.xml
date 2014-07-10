@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- use ant to manage project, simpler than phing -->
 
-<project name="DragonWars" default="help">
+<project name="FunGame" default="help">
     <target name="build" depends="assertProdBuild" />
     <target name="qa" depends="prepare,phpmd,phpcs" />
 

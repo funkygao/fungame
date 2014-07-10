@@ -18,7 +18,7 @@
     </listeners>
 
     <testsuites>
-        <testsuite name="DragonWar">
+        <testsuite name="FunGame">
             <directory>./</directory>
             <exclude>tests/Services/</exclude>
         </testsuite>
