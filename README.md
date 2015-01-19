@@ -127,3 +127,54 @@ LogicalLayer
             |    |      |        |
            DB  Cache  logger   redis
 
+Patterns used
+============
+
+*   Active Record (Model/Base/ActiveRecord)
+
+*   Mediator(PropertyManager)
+
+*   Delayed Job (JobModel)
+
+*   Facade Pattern(e,g. Manager)
+
+*   Strategy Pattern (e,g. Model/ConsumableModel)
+
+*   State Pattern (e,g. March state switching)
+
+*   EDA
+    Event Driven Architecture - March Event
+
+*   Observer
+
+          Observer              Subject
+             ^                     ^
+             |                     |
+         XxxManager            ActiveRecord
+             |                     ^
+             |                     |
+             |                  YyyModel
+             |                     |
+             |                     |
+             |              attach(XxxManager)
+             |                     |
+             |                     |
+             |               "Events Happen"
+             |                     |
+             |                     |
+             |                   notify()
+             |                     |
+        update(YyyModel)<----------|
+             |                     |
+             V                     V
+
+
+*   DB write buffer/Flusher
+
+*   App Level Rollback
+    - in-house redolog/undolog
+
+*   Singleton
+
+*   Factory Method
+
