@@ -8,81 +8,67 @@ namespace System;
  * It is responsible for the dispatch|routing and response rendering.
  */
 final class Application
-    implements \Consts\LoggerConst, \Consts\AppConst {
+    implements \Consts\LoggerConst, \Consts\AppConst, \Consts\ErrnoConst {
 
     /**
      * @var ResponseHandler
      */
-    private static $_response;
+    private static $_responseHandler;
 
     /**
      * @var RequestHandler
      */
-    private static $_request;
+    private static $_requestHandler;
 
     /**
      * @var Logger
      */
     private static $_logger;
 
-    /**
-     * @var Application
-     */
-    private static $_instance = NULL;
-
-    public static function getInstance(RequestHandler $request, ResponseHandler $response) {
-        if (NULL === self::$_instance) {
-            self::$_instance = new self($request, $response);
-        }
-
-        return self::$_instance;
-    }
-
-    private function __construct(RequestHandler $request, ResponseHandler $response) {
-        self::$_response = $response;
-        self::$_request = $request;
-    }
-
-    public final function __clone() {
-        throw new \Exception('You can not clone a singleton.');
+    public function __construct(\System\RequestHandler $request,
+                                \System\ResponseHandler $response) {
+        self::$_requestHandler = $request;
+        self::$_responseHandler = $response;
     }
 
     public function init() {
+        date_default_timezone_set('UTC'); // because our mysql use UTC
         ini_set('display_errors', 'Off');
         error_reporting(E_ALL^E_NOTICE); // in php.ini when release
 
         // register logger first
-        foreach (\System\Config::get('log') as $logger) {
+        foreach (\System\Config::get('global', 'logger') as $logger) {
             \System\Appender\Factory::register($logger);
         }
         self::$_logger = \System\Logger::getLogger(__CLASS__);
 
         // let these unexpected handlers registered as soon as possible
-        register_shutdown_function(array(__CLASS__, 'shutdown_handler'));
-        set_exception_handler(array(__CLASS__, 'exception_handler'));
-        set_error_handler(array(__CLASS__, 'error_handler'));
+        register_shutdown_function(array($this, 'shutdown_handler'));
+        set_exception_handler(array($this, 'exception_handler'));
+        set_error_handler(array($this, 'error_handler'));
 
-        self::$_request->validate();
-        self::$_request->setupRequestOpTime();
+        self::$_requestHandler->validate();
+        self::$_requestHandler->setupRequestOpTime();
 
         return $this;
     }
 
-    public static function shutdown_handler() {
+    public function shutdown_handler() {
+        // TODO maybe we need \System\LockStep::releaseAll(); here
         if ($error = error_get_last()) {
-            self::exception_handler(new \ErrorException($error['message'],
+            $this->exception_handler(new \ErrorException($error['message'],
                 $error['type'], 0, $error['file'], $error['line']));
         }
     }
 
-    public static function error_handler($code, $error, $file = NULL, $line = NULL) {
+    public function error_handler($code, $error, $file = NULL, $line = NULL) {
         if (E_ERROR & $code) {
             // fatal run-time errors, e,g., mem alloc failure
             $ex = new \ErrorException($error, $code, 0, $file, $line);
             self::$_logger->exception($ex);
-            
+
             // let client know we got into trouble
-            self::$_instance->_setExceptionResponsePayload($ex)->printResponse();
+            $this->_setExceptionResponsePayload($ex)->printResponse();
         } else if (error_reporting() & $code) {
             static $errcodeMapping = array(
                 2 => 'E_WARNING',
@@ -101,113 +87,266 @@ final class Application
             error_log($message, 3, self::PHP_ERROR_FILE); // 3 means append to logfile
             // log the backtrace, TODO remove on production env
             $ex = new \Exception();
-            error_log($ex->getTraceAsString(), 3, self::PHP_ERROR_FILE);
+            error_log($ex->getTraceAsString() . PHP_EOL, 3, self::PHP_ERROR_FILE);
         }
 
         return TRUE;
     }
 
-    public static function exception_handler(\Exception $ex) {
+    public function exception_handler(\Exception $ex) {
         self::$_logger->exception($ex);
 
-        self::$_instance->_setExceptionResponsePayload($ex)->printResponse();
+        $this->_setExceptionResponsePayload($ex)->printResponse();
         return TRUE;
     }
 
-    private function _setExceptionResponsePayload(\Exception $ex) {
+    private function _setExceptionResponsePayload(\Exception $ex, $code = NULL) {
         /*
          * only biz related exceptions will be rendered to client
          * system related exceptions are invisible to client
          */
         $msg = self::MSG_SYS_ERROR;
-        if (TRUE || $ex instanceof \System\GameException) { // FIXME before release
+        if (TRUE || $ex instanceof \RestartGameException) { // FIXME before release
             $msg = $ex->getMessage();
         }
-        $msg = $ex->getMessage() . ' -- ' . $ex->getTraceAsString();
 
-        self::$_response->fail()
-            ->setMessage($msg);
-        return self::$_response;
+        if (NULL === $code) {
+            $code = $ex->getCode();
+        }
+
+        // TODO return err code to client instead of err msg
+        self::$_responseHandler->fail()
+            ->setMessage($msg)
+            ->setCode($code);
+
+        if ($ex instanceof \RestartGameException) {
+            self::$_responseHandler->restartGame();
+        }
+
+        return self::$_responseHandler;
     }
 
     /**
      * @param string $controllerClass
      * @param string $method
-     * @return \Service\Base\BaseService
-     * @throws HttpNotFoundException
+     * @return \Services\Base\BaseService
+     * @throws \HttpNotFoundException
      */
     public static function buildController($controllerClass, $method = '') {
         if (!$controllerClass) {
-            throw new HttpNotFoundException("Empty controller classname");
+            throw new \HttpNotFoundException("Empty controller classname");
         }
 
         $controllerClass = ucfirst($controllerClass) . 'Service';
-        $controllerClass = "Service\\$controllerClass";
+        $controllerClass = "Services\\$controllerClass";
         if (!class_exists($controllerClass)) {
-            throw new HttpNotFoundException("Class does not exist: $controllerClass");
+            throw new \HttpNotFoundException("Class does not exist: $controllerClass");
         }
 
-        $controller = $controllerClass::getInstance(self::$_request, self::$_response);
+        $controller = $controllerClass::getInstance(self::$_requestHandler, self::$_responseHandler);
         if ($method && !method_exists($controller, $method)) {
-            throw new HttpNotFoundException("Invalid method: $controllerClass->$method");
+            throw new \HttpNotFoundException("Invalid method: $controllerClass->$method");
         }
 
         return $controller;
     }
 
     public function execute() {
-        ob_start();
+        $faeClientBroken = FALSE; // fae如果抛出异常，则这个连接就断了
 
-        // dispatch request to target action, execute the api routine
         try {
-            $action = self::$_request->request('method');
-            $params = self::$_request->getParams();
+            $globalMaintenanceDuration = \System\Config::maintenanceDuration();
+            if ($globalMaintenanceDuration) {
+                throw new \MaintainException($globalMaintenanceDuration);
+            }
+
+            $class = self::$_requestHandler->request('class');
+            $action = self::$_requestHandler->request('method');
+            $params = self::$_requestHandler->getParams();
 
             self::$_logger->debug(self::CATEGORY_REQUEST, array(
-                "request" => array(
-                    "class" => self::$_request->request("class"),
-                    "method" => self::$_request->request("method"),
-                    "params" => $params,
+                'request' => array(
+                    'class' => $class,
+                    'method' => $action,
+                    'params' => $params,
                 ),
             ));
 
-            $startedAt = time();
-            // TODO only CallService is permitted here
-            $controller = self::buildController(self::$_request->request('class'), $action);
-            // hook, wakeup pending jobs
-            // we can't call JobModel::wakeupPendingJobs() because of batch mechanism
-            // for batch, each op will wakeup job for opTime
-            $controller->beforeAction($params);
-            $result = $controller->{$action}($params);
+            if (self::$_requestHandler->needToken()) {
+                // FIXME token时，uid是靠UserManager deocde JWT的，这里却直接getUid，奇怪
+                $uid = self::$_requestHandler->getUid();
+            }
+            if (!isset($params['uid'])) {
+                $params['uid'] = $uid; // FIXME discard before release
+            }
 
-            // flush dirty rows to db
-            \System\Flusher::getInstance()->flushAll();
+            $controller = self::buildController($class, $action);
+            $maxLockRetry = 3;
+            for ($retries = 0; $retries < $maxLockRetry; $retries++) {
+                try {
+                    $result = $controller->{$action}($params);
+                } catch (\LockException $ex) {
+                    $waitMs = ($maxLockRetry - $retries) * 50 + rand(10, 50);
+                    usleep(1000 * $waitMs);
+                    self::$_logger->warn('lock', array(
+                        'retry' => $retries + 1,
+                        'uid' => $ex->getMessage(),
+                        'wait' => $waitMs,
+                    ));
 
-            if (time() - $startedAt > self::THRESHOLD_SLOW_RESPONSE) {
+                    continue;
+                }
+
+                // lucky, didn't encounter lock exception
+                break;
+            }
+            if ($retries == $maxLockRetry) {
+                // we have to give up retry
+                throw $ex;
+            }
+
+            $flushTime = \System\Flusher::getInstance()->flushAll(); // may throw PDOException
+            self::$_responseHandler->setCallbackTime($flushTime);
+            \Driver\DbFactory::instance()->commitAll();
+
+            // trace request/response
+            $elapsed = round(microtime(TRUE) - REQUEST_TIME_FLOAT, 3);
+            self::$_logger->debug(self::CATEGORY_RESPONSE, array(
+                    'size' => is_array($result) ? strlen(json_encode($result)) : 1,
+                    'elapsed' => $elapsed,
+                    'result' => $result,
+                )
+            );
+            if ($elapsed > self::THRESHOLD_SLOW_RESPONSE) {
                 self::$_logger->warn(self::CATEGORY_SLOWREQUEST, array(
-                    'call' => self::$_request->actionName(),
+                    'call' => self::$_requestHandler->actionName(),
                     'params' => $params,
                 ));
             }
 
-            self::$_response->succeed()
-                ->setPayload($result);
+            if (self::$_requestHandler->isTokenlessService($class)) {
+                self::$_responseHandler->succeed()
+                    ->setPayload($result, TRUE);
+            } else {
+                self::$_responseHandler->succeed()
+                    ->setPayload($result);
+            }
+        } catch (\PDOException $ex) {
+            // will lead to db data inconsistency because of db write buffer
+            // some system use MQ to implement internal rollback mechanism
+            // out log 'IS' MQ for eventual consistency
+            // TODO we need more robust and auto rollback mechanism
+            \Driver\DbFactory::instance()->rollbackAll();
 
-            self::$_logger->debug(self::CATEGORY_RESPONSE, array(
-                    'call' => self::$_request->actionName(),
-                    'result' => $result,
-                )
-            );
-        } catch (HttpNotFoundException $ex) {
-            self::$_response->notFound();
-        } catch (\Exception $ex) {
+            self::$_logger->error(self::CATEGORY_REDOLOG, array(
+                'err' => $ex->getMessage(),
+                'trace' => $ex->getTrace(),
+                'req' => self::$_requestHandler->export(),
+                'redo' => \Model\Base\Table::getRedoLog(),
+            ));
+
+            \Model\Base\ActiveRecord::undoCreates();
             self::$_logger->exception($ex);
-            $this->_setExceptionResponsePayload($ex);
+            $this->_setExceptionResponsePayload($ex, self::ERRNO_EXCEPTION_PDO);
+        } catch (\RedisException $ex) {
+            \Driver\DbFactory::instance()->rollbackAll();
+
+            self::$_logger->error(self::CATEGORY_REDOLOG, array(
+                'err' => $ex->getMessage(),
+                'trace' => $ex->getTrace(),
+                'req' => self::$_requestHandler->export(),
+                'redo' => \Model\Base\Table::getRedoLog(),
+            ));
+
+            \Model\Base\ActiveRecord::undoCreates();
+            self::$_logger->exception($ex);
+            $this->_setExceptionResponsePayload($ex, self::ERRNO_EXCEPTION_REDIS);
+        } catch (\MaintainException $ex) {
+            // 系统挂维护, ex.message 表示多少分钟后用户可以重试
+            \Model\Base\ActiveRecord::undoCreates();
+            self::$_responseHandler->underMaintenance($ex->getMessage());
+        } catch (\ShardLockException $ex) {
+            \Model\Base\ActiveRecord::undoCreates();
+            self::$_responseHandler->underMaintenance(60 * 24);
+        } catch (\HttpNotFoundException $ex) {
+            \Driver\DbFactory::instance()->rollbackAll();
+
+            \Model\Base\ActiveRecord::undoCreates();
+            self::$_responseHandler->notFound();
+        } catch (\LockException $ex) {
+            self::$_logger->warn('lock', array(
+                'accquire' => 'fail',
+                'uid' => $ex->getMessage(),
+            ));
+
+            \Model\Base\ActiveRecord::undoCreates();
+            self::$_responseHandler->locked();
+        } catch (\ExpectedErrorException $ex) {
+            \Driver\DbFactory::instance()->rollbackAll();
+
+            \Model\Base\ActiveRecord::undoCreates();
+            self::$_logger->exception($ex);
+            self::$_responseHandler->fail()
+                ->setPayload($ex->getPayload());
+        } catch (\RestartGameException $ex) {
+            \Driver\DbFactory::instance()->rollbackAll();
+
+            if ($ex instanceof \CheatingException) {
+                // TODO log cheat
+            }
+
+            \Model\Base\ActiveRecord::undoCreates();
+            self::$_logger->exception($ex);
+            self::$_responseHandler->restartGame()
+                ->setMessage($ex->getMessage()); // FIXME hide this in prod env
+        } catch (\OptimisticLockException $ex) {
+            \Driver\DbFactory::instance()->rollbackAll();
+
+            \Model\Base\ActiveRecord::undoCreates();
+            self::$_logger->exception($ex);
+            $this->_setExceptionResponsePayload($ex, self::ERRNO_EXCEPTION_OPTIMISTICLOCK);
+        } catch (\InvalidArgumentException $ex) {
+            self::$_logger->exception($ex);
+
+            self::$_responseHandler->restartGame()
+                ->setMessage($ex->getMessage());
+        } catch (\Funplus\Thrift\serverGated_serverGatedException $ex) {
+            self::$_logger->exception($ex);
+
+            self::$_responseHandler->restartGame()
+                ->setMessage($ex->getMessage());
+        } catch (\Thrift\Exception\TException $ex) {
+            $faeClientBroken = TRUE;
+
+            // unexpected exception
+            self::$_logger->exception($ex);
+
+            \Model\Base\ActiveRecord::undoCreates(); // FIXME can do that while fae broken?
+
+            self::$_responseHandler->restartGame()
+                ->setMessage($ex->getMessage());
+        } catch (\Exception $ex) {
+            \Driver\DbFactory::instance()->rollbackAll();
+
+            self::$_logger->exception($ex);
+
+            \Model\Base\ActiveRecord::undoCreates();
+
+            $this->_setExceptionResponsePayload($ex, self::ERRNO_EXCEPTION_UNKNOWN);
         }
 
-        self::$_response->printResponse();
+        \System\LockStep::releaseAll();
+
+        $payloadSize = self::$_responseHandler->printResponse();
+
+        if (\FaeEngine::isConnected() && !$faeClientBroken) {
+            \FaeEngine::client()->gm_latency(
+                \FaeEngine::ctx(),
+                (int)((microtime(TRUE) - REQUEST_TIME_FLOAT) * 1000),
+                $payloadSize
+            );
+        }
+
     }
 
 }
-
-class HttpNotFoundException extends \Exception {}
