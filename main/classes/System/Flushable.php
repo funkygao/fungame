@@ -1,6 +1,6 @@
 <?php
 
-namespace Model\Base;
+namespace System;
 
 interface Flushable {
 

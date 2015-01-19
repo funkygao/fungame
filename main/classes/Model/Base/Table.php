@@ -5,9 +5,10 @@ namespace Model\Base;
 /**
  * Table is NOT cache aware!
  *
- * Use Table CRUD with care! We prefer to use Model.
+ * Use Table CRUD with care! We prefer to use Model\Base\ActiveRecord.
  */
-final class Table implements \Consts\ColumnConst {
+final class Table
+    implements \Consts\ColumnConst {
 
     /**
      * Reflection class of {@link Model}.
@@ -29,6 +30,13 @@ final class Table implements \Consts\ColumnConst {
      */
     public $name;
 
+    /*
+     * Table name for callback
+     *
+     * @var string
+     */
+    public $tname;
+
     /**
      * DB pool name.
      *
@@ -49,6 +57,37 @@ final class Table implements \Consts\ColumnConst {
     public $shardColumn;
 
     /**
+     * When call AR::getAll, how many pks will be passed in.
+     *
+     * For example, CityModel::getAll($uid), getAllSliceN=1, only 1 pk(uid) passed in
+     *
+     * @var int
+     */
+    public $getAllSliceN;
+
+    /**
+     * @var bool
+     */
+    public $cacheable = FALSE;
+
+    /**
+     * @var bool
+     */
+    public $noAutoCallback = FALSE;
+
+    /**
+     * Model storage type.
+     *
+     * @see \Consts\ColumnConst
+     *
+     * Valid altanatives includes: db | couchbase
+     *
+     * @var string
+     * @todo
+     */
+    public $storage;
+
+    /**
      * List of primary key names.
      *
      * Can identify a row in a table. It's array because it can be compound primary key.
@@ -56,6 +95,13 @@ final class Table implements \Consts\ColumnConst {
      * @var array Even if the table has 1 primary key, it is array
      */
     public $pk = array();
+
+    /**
+     * For rollback.
+     *
+     * @var array
+     */
+    private static $_redoLog = array();
 
     /**
      * @param string $modelClassName
@@ -72,6 +118,14 @@ final class Table implements \Consts\ColumnConst {
 
     private function __construct($modelClassName) {
         $this->modelClass = new \ReflectionClass($modelClassName);
+        if (($storage = $this->modelClass->getStaticPropertyValue('storage', NULL))) {
+            if ($storage != self::STORAGE_DB && $storage != self::STORAGE_COUCHBASE) {
+                throw new \InvalidArgumentException("invalid AR storage: $storage");;
+            }
+            $this->storage = $storage;
+        } else {
+            $this->storage =self::STORAGE_DB; // defaults
+        }
         if (($pool = $this->modelClass->getStaticPropertyValue('pool', NULL))) {
             $this->pool = $pool;
         } else {
@@ -82,11 +136,21 @@ final class Table implements \Consts\ColumnConst {
         } else {
             throw new \InvalidArgumentException('empty table declaration');
         }
+        if (($tname = $this->modelClass->getStaticPropertyValue('tname', NULL))) {
+            $this->tname = $tname;
+        } else {
+            throw new \InvalidArgumentException('empty tname declaration');
+        }
+        if (($noAutoCallback = $this->modelClass->getStaticPropertyValue('noAutoCallback', NULL))) {
+            $this->noAutoCallback = $noAutoCallback;
+        }
         if (($ticket = $this->modelClass->getStaticPropertyValue('ticket', NULL))) {
             $this->ticket = $ticket;
         } else {
             $this->ticket = $this->name;
         }
+        $this->getAllSliceN = $this->modelClass->getStaticPropertyValue('getAllSliceN', 1);
+        $this->cacheable = $this->modelClass->getStaticPropertyValue('cacheable', FALSE);
         $columns = $this->modelClass->getStaticPropertyValue('columns', NULL);
         if (is_null($columns)) {
             throw new \InvalidArgumentException('emptyt columns declaration');
@@ -117,10 +181,6 @@ final class Table implements \Consts\ColumnConst {
         }
     }
 
-    public function validateRow(array $row) {
-        // TODO
-    }
-
     /**
      * Get all the column names of this table.
      *
@@ -133,11 +193,11 @@ final class Table implements \Consts\ColumnConst {
     /**
      * Get a column object by column name.
      *
-     * @param string $column Column name
+     * @param string $columnName
      * @return Column
      */
-    public function column($column) {
-        return $this->columns[$column];
+    public function column($columnName) {
+        return $this->columns[$columnName];
     }
 
     /**
@@ -161,11 +221,18 @@ final class Table implements \Consts\ColumnConst {
      * @param int $hintId
      * @param string $sql
      * @param array $args
-     * @return \Driver\DbResult
+     * @param string $cacheKey
+     * @return \Driver\Db\DbResult
      */
-    public function query($hintId, $sql, array $args = array()) {
-        return \Driver\DbFactory::instance($this->pool)
-            ->query($this->name, $hintId, $sql, $args);
+    public function query($hintId, $sql, array $args = array(), $cacheKey = '') {
+        self::$_redoLog[] = array(
+            'hintId' => $hintId,
+            'sql' => $sql,
+            'args' => $args,
+        );
+
+        return \Driver\DbFactory::instance()
+            ->query($this->pool, $this->name, $hintId, $sql, $args, $cacheKey);
     }
 
     /**
@@ -175,11 +242,18 @@ final class Table implements \Consts\ColumnConst {
      *
      * @param string $sql
      * @param array $args
-     * @return \Driver\DbResult
+     * @param string $cacheKey
+     * @return \Driver\Db\DbResult
      */
-    public function g_query($sql, array $args = array()) {
-        return \Driver\DbFactory::instance($this->pool)
-            ->query($this->name, 0, $sql, $args);
+    public function g_query($sql, array $args = array(), $cacheKey = '') {
+        return $this->query(0, $sql, $args, $cacheKey);
+    }
+
+    /**
+     * @return array
+     */
+    public static function getRedoLog() {
+        return self::$_redoLog;
     }
 
     /**
@@ -187,14 +261,17 @@ final class Table implements \Consts\ColumnConst {
      * @param string $whereClause e,g. 'uid=? AND pid>?'
      * @param array $args e,g. array(5, 12)
      * @param string $columns e,g. 'uid,pid,ctime,mtime'
+     * @param string $cacheKey
      * @return array List of db row
      */
-    public function select($hintId, $whereClause, array $args = array(), $columns = '*') {
+    public function select($hintId, $whereClause, array $args = array(),
+                           $columns = '*', $cacheKey = '') {
         $sql = "SELECT $columns FROM {$this->name}";
         if (trim($whereClause)) {
             $sql .= " WHERE $whereClause";
         }
-        return $this->query($hintId, $sql, $args)->getResults();
+        return $this->query($hintId, $sql, $args, $cacheKey)
+            ->getResults();
     }
 
     /**
@@ -202,9 +279,11 @@ final class Table implements \Consts\ColumnConst {
      * @param array $row
      * @param bool $ignore
      * @param array $onDuplicateKeyUpdate Imitation of upsert.
-     * @return \Driver\DbResult
+     * @param string $cacheKey
+     * @return \Driver\Db\DbResult
      */
-    public function insert($hintId, array $row, $ignore = FALSE, $onDuplicateKeyUpdate = array()) {
+    public function insert($hintId, array $row, $ignore = FALSE, $onDuplicateKeyUpdate = array(),
+                           $cacheKey = '') {
         $sql = "INSERT INTO {$this->name}";
         if ($ignore) {
             $sql = "INSERT IGNORE INTO {$this->name}";
@@ -234,8 +313,7 @@ final class Table implements \Consts\ColumnConst {
             $sql .= " ON DUPLICATE KEY UPDATE $dupStr";
         }
 
-        return \Driver\DbFactory::instance($this->pool)
-            ->query($this->name, $hintId, $sql, $args);
+        return $this->query($hintId, $sql, $args, $cacheKey);
     }
 
     /**
@@ -244,20 +322,21 @@ final class Table implements \Consts\ColumnConst {
      * @param int $hintId
      * @param array $row
      * @param array $onDuplicateKeyUpdate e,g. array('value' => 'value+2')
-     * @return \Driver\DbResult
+     * @param string $cacheKey
+     * @return \Driver\Db\DbResult
      */
-    public final function upsert($hintId, array $row, array $onDuplicateKeyUpdate) {
-        return $this->insert($hintId, $row, FALSE, $onDuplicateKeyUpdate);
+    public final function upsert($hintId, array $row, array $onDuplicateKeyUpdate, $cacheKey = '') {
+        return $this->insert($hintId, $row, FALSE, $onDuplicateKeyUpdate, $cacheKey);
     }
 
     public function replace($hintId, array $keyValues) {
         list($cols, $vals, $args) = $this->_getBind($keyValues);
         $sql = "REPLACE INTO {$this->name} (" . join(",", $cols) . ") VALUES(" . join(",", $vals) . ")";
-        return \Driver\DbFactory::instance($this->pool)
-            ->query($this->name, $hintId, $sql, $args);
+        return $this->query($hintId, $sql, $args);
     }
 
-    public function update($hintId, array $set, $whereClause, array $whereArgs = array()) {
+    public function update($hintId, array $set, $whereClause,
+                           array $whereArgs = array(), $cacheKey = '') {
         list($cols, $vals, $args) = $this->_getBind($set);
         if ($whereArgs) {
             $args = array_merge($args, $whereArgs);
@@ -265,7 +344,11 @@ final class Table implements \Consts\ColumnConst {
 
         $setInfo = array();
         foreach ($cols as $pos => $bind) {
-            $setInfo[] = "$bind=" . $vals[$pos];
+            if ($this->columns[$bind]->delta) {
+                $setInfo[] = "$bind=$bind+" . $vals[$pos];
+            } else {
+                $setInfo[] = "$bind=" . $vals[$pos];
+            }
         }
 
         $setStr = join(",", $setInfo);
@@ -274,17 +357,15 @@ final class Table implements \Consts\ColumnConst {
         }
 
         $sql = "UPDATE {$this->name} SET " . $setStr . " WHERE $whereClause";
-        return \Driver\DbFactory::instance($this->pool)
-            ->query($this->name, $hintId, $sql, $args);
+        return $this->query($hintId, $sql, $args, $cacheKey);
     }
 
-    public function delete($hintId, array $keyValues) {
+    public function delete($hintId, array $keyValues, $cacheKey = '') {
         $sql = "DELETE FROM {$this->name} WHERE 1=1";
         foreach ($keyValues as $key => $_) {
             $sql .= " AND $key=?";
         }
-        return \Driver\DbFactory::instance($this->pool)
-            ->query($this->name, $hintId, $sql, array_values($keyValues));
+        return $this->query($hintId, $sql, array_values($keyValues), $cacheKey);
     }
 
     private function _getBind(array &$keyValues) {
@@ -295,7 +376,7 @@ final class Table implements \Consts\ColumnConst {
                 $value = ts_unix2mysql($value);
             }
             if ($this->columns[$col]->type == self::JSON) {
-                $value = json_encode($value);
+                $value = json_encode($value, JSON_FORCE_OBJECT);
             }
 
             $cols[] = $col;

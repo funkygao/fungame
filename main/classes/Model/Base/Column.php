@@ -2,7 +2,8 @@
 
 namespace Model\Base;
 
-final class Column implements \Consts\ColumnConst {
+final class Column
+    implements \Consts\ColumnConst {
 
     /**
      * The true name of this column.
@@ -66,6 +67,20 @@ final class Column implements \Consts\ColumnConst {
      */
     public $choices;
 
+    /**
+     * If the update is like update col=col+delta
+     *
+     * @var boolean
+     */
+    public $delta = FALSE;
+
+    /**
+     * Usually json blob, only faed can write it to avoid concurrent update.
+     *
+     * @var bool
+     */
+    public $critical = FALSE;
+
     public function __construct(array $attributes) {
         foreach ($attributes as $attr => $value) {
             $this->$attr = $value;
@@ -89,6 +104,7 @@ final class Column implements \Consts\ColumnConst {
                         $this->default = array();
                         break;
 
+                    case self::VER:
                     case self::INTEGER:
                     case self::DECIMAL:
                     case self::UINT:
@@ -97,6 +113,9 @@ final class Column implements \Consts\ColumnConst {
 
                     case self::STRING:
                         //$this->default = '';  FIXME some uniq column UserLookup.accountName
+                        break;
+                    case self::DATETIME:
+                        $this->default = 1414368000; // default [2014-10-27 00:00:00] because mysql 5.6 can not insert 1970-01-01 00:00:00
                         break;
                 }
             }
@@ -123,6 +142,7 @@ final class Column implements \Consts\ColumnConst {
 
                 return (string)$value;
 
+            case self::VER:
             case self::INTEGER:
             case self::UINT:
                 if (!is_numeric($value)) {
@@ -134,7 +154,7 @@ final class Column implements \Consts\ColumnConst {
                 if (!is_numeric($value)) {
                     throw new \InvalidArgumentException("Double expected, got $value");
                 }
-                return (double)$value;
+                return round((double)$value, 2);
 
             case self::JSON:
                 return (array)$value;
