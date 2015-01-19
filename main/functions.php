@@ -16,7 +16,7 @@ function is_assoc(array $array) {
  * @return string
  */
 function ts_unix2mysql($unix_timestamp) {
-    return date('Y-m-d H:i:s', $unix_timestamp); // TODO gmdate
+    return gmdate('Y-m-d H:i:s', $unix_timestamp); 
 }
 
 /**
@@ -87,26 +87,6 @@ function array_deep_del(array &$arr, $path) {
         $arr = &$arr[$pieces[$i]];
     }
     unset($arr[$pieces[$n]]);
-}
-
-function time_before_today($timestamp) {
-    static $todayBeginsAt = NULL;
-    if ($todayBeginsAt === NULL) {
-        $todayBeginsAt = strtotime(gmdate("Y-m-d\T00:00:00\Z")); // FIXME
-    }
-
-    if ($timestamp < $todayBeginsAt) {
-        return true;
-    }
-    return false;
-}
-
-function in_between($min, $max, $in) {
-    if($min <= $in && $max >= $in) {
-        return TRUE;
-    }
-
-    return FALSE;
 }
 
 function random_string($length) {

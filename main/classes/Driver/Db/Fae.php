@@ -4,84 +4,48 @@ namespace Driver\Db;
 
 class Fae implements Driver {
 
-    private static $_pools = array(
-        // shard lookup
-        'AllianceLookup' => 'ShardLookup',
-        'UserLookup' => 'ShardLookup',
-        'WorldLookup' => 'ShardLookup',
-        'AllianceTickets' => 'Tickets',
-        'JobTickets' => 'Tickets',
-        'Tickets' => 'Tickets',
-
-        // user shard
-        'UserInfo' => 'UserShard', // table => pool
-        'UserCity' => 'UserShard',
-        'Job' => 'UserShard',
-        'UserInventory' => 'UserShard',
-        'UserStats' => 'UserShard',
-        'CityMap' => 'UserShard',
-        'UserHero' => 'UserShard',
-        'Mail' => 'UserShard',
-        'March' => 'UserShard',
-        'PVEMarch' => 'UserShard',
-        'Progressions' => 'UserShard',
-        'Research' => 'UserShard',
-        'UserChatGroup' => 'UserShard',
-        'UserChatRoom' => 'UserShard',
-        'UserConsumable' => 'UserShard',
-        'UserContacts' => 'UserShard',
-        'UserQuest' => 'UserShard',
-
-        // alliance shard
-        'Alliance' => 'AllianceShard',
-        'AllianceHelp' => 'AllianceShard',
-        'AllianceRoster' => 'AllianceShard',
-        'DiplomacyFrom' => 'AllianceShard',
-        'DiplomacyTo' => 'AllianceShard',
-
-        // world shard
-        'WorldMap' => 'WorldShard',
-        // TODO March is in both world shard and user shard
-
-        // TODO more to be added here
-    );
-
     /**
+     * CAUTION: if select, the 'SELECT' must be upper case.
+     * string.toupper has too much overhead.
+     *
+     * @param string $pool e,g. 'user' instead of 'UserShard', ref DbConst
      * @param string $table
      * @param int $hintId
      * @param string $sql
      * @param array $args
-     * @throws \InvalidArgumentException
-     * @return \Driver\DbResult
+     * @param string $cacheKey
+     *
+     * @return \Driver\Db\DbResult
      */
-    public function query($table, $hintId, $sql, array $args = array()) {
-        if (!isset(self::$_pools[$table])) {
-            throw new \InvalidArgumentException("Table: $table pool is undefined");
-        }
+    public function query($pool, $table, $hintId, $sql, array $args = array(),
+                          $cacheKey = '') {
+        list($shardName, $_, $_) = ShardInfo::pool2shard($pool);
 
         $mysqlResult = \FaeEngine::client()->my_query(
             \FaeEngine::ctx(),
-            self::$_pools[$table], // pool name
-            $table,
-            $hintId,
-            $sql,
-            $args
+            $shardName, $table, $hintId,
+            $sql, $args, $cacheKey
         );
 
-        $result = new \Driver\DbResult();
+        $result = new \Driver\Db\DbResult();
         $result->setAffectedRows($mysqlResult->rowsAffected);
         $result->setInsertId($mysqlResult->lastInsertId);
         if (!$mysqlResult->rowsAffected) {
             // SELECT
-            $rows = json_decode($mysqlResult->rows, TRUE);
-            if (!empty($rows['vals'])) {
-                $result->setResults($this->_fetch_assoc_rows($rows['cols'], $rows['vals']));
+            if (!empty($mysqlResult->rows)) {
+                $result->setResults($this->_fetch_assoc_rows($mysqlResult->cols,
+                    $mysqlResult->rows));
             }
         }
 
         return $result;
     }
 
+    public function queryShards($table, $sql, array $args = array()) {
+        // TODO and will do
+    }
+
+    // TODO use array_flip($columns)
     private function _fetch_assoc_rows($columns, $rows) {
         $ret = array();
         foreach ($rows as $row) {
@@ -98,7 +62,15 @@ class Fae implements Driver {
         return $ret;
     }
 
-    public function close() {
+    public function close() { }
 
+    public function commitAll()
+    {
+        // TODO: Implement commitAll() method.
+    }
+
+    public function rollbackAll()
+    {
+        // TODO: Implement rollbackAll() method.
     }
 }
