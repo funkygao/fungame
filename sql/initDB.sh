@@ -11,8 +11,11 @@
 $SHARDS_AND_AMOUNT = array(
     'ShardLookup' => array('name' => 'ShardLookup', 'num' => 1),
     'Global' => array('name' => 'Global', 'num' => 1),
+    'Tickets' => array('name' => 'Tickets', 'num' => 1),
     'UserShard' => array('name' => 'UserShard', 'num' => 2),
-    'WorldShard' => array('name' => 'WorldShard', 'num' => 2), 
+    'AllianceShard' => array('name' => 'AllianceShard', 'num' => 2), // thinking this can be ranges
+    'WorldShard' => array('name' => 'WorldShard', 'num' => 2), // there will be a subshard component that puts titles into seperate servers
+    'ChatShard' => array('name' => 'ChatShard', 'num' => 2),
 );
 
 
@@ -21,9 +24,9 @@ $MYSQL_CMD = "/usr/bin/mysql -uroot ";
 /**
  * create the databases
  */
-foreach ($SHARDS_AND_AMOUNT as $pool => $conf) {
-    $num = $conf['num'];
-    $name = $conf['name'];
+foreach ($SHARDS_AND_AMOUNT as $DB_PATTERN => $struct) {
+    $num = $struct['num'];
+    $name = $struct['name'];
     $DB = $name;
     for ($i = 1; $i <= $num; $i++) {
         if ($num > 1){
@@ -38,7 +41,7 @@ foreach ($SHARDS_AND_AMOUNT as $pool => $conf) {
         print "$cmd\n";
         system($cmd);
 
-        $path = dirname(dirname(__FILE__)) . '/sql/' . $pool;
+        $path = dirname(dirname(__FILE__)) . '/sql/' . $DB_PATTERN;
         if (is_dir($path)) {
             if ($dh = opendir($path)) {
                 while (($file = readdir($dh)) !== false) {

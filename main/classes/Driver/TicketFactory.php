@@ -5,21 +5,21 @@ namespace Driver;
 final class TicketFactory {
 
     /**
-     * @var \Driver\Ticket\Driver
+     * @var \Driver\Ticket\Driver[]
      */
-    private static $_driver = NULL;
+    private static $_drivers = array();
 
     /**
      * @param string $driver
      * @return Ticket\Driver
      */
     public static function instance($driver = 'DB') {
-        if (self::$_driver === NULL) {
+        if (!isset(self::$_drivers[$driver])) {
             $driverClass = '\\Driver\Ticket\\' . ucfirst($driver);
-            self::$_driver = new $driverClass();
+            self::$_drivers[$driver] = new $driverClass();
         }
 
-        return self::$_driver;
+        return self::$_drivers[$driver];
     }
 
 }

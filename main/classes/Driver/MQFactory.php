@@ -17,8 +17,16 @@ final class MQFactory {
         $key = "$driver:$tube";
         if (!isset($drivers[$key])) {
             $driverClass = '\\Driver\MQ\\' . ucfirst($driver);
-            $drivers[$key] = new $driverClass();
-            $drivers[$key]->init($tube);
+            try {
+                $drivers[$key] = new $driverClass();
+                $drivers[$key]->init($tube);
+            } catch (\Pheanstalk_Exception_ConnectionException $ex) {
+                // beanstalkd died, fallback to dummy driver
+                // we shouldn't let beanstalkd kill us
+                $drivers[$key] = new \Driver\MQ\Dummy();
+                $drivers[$key]->init($tube);
+            }
+
         }
 
         return $drivers[$key];

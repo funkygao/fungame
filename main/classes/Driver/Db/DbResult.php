@@ -1,8 +1,9 @@
 <?php
 
-namespace Driver;
+namespace Driver\Db;
 
-class DbResult implements \ArrayAccess, \IteratorAggregate, \Countable {
+final class DbResult
+    implements \ArrayAccess, \IteratorAggregate, \Countable {
 
     /**
      * @var array

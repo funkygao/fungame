@@ -4,6 +4,8 @@ namespace Driver;
 
 /**
  * Intant Messaging.
+ *
+ * Currently, only supports pubnub | rtm. Either works, not both.
  */
 final class IMFactory {
 
@@ -20,6 +22,10 @@ final class IMFactory {
         }
 
         return self::$_driver;
+    }
+
+    public static function ifUseRtm() {
+        return \System\Config::get('global', 'im') == 'rtm';
     }
 
 }

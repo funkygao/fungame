@@ -1,6 +1,6 @@
 <?php
 
-namespace Driver\Db;
+namespace Driver\Db\Mysql;
 
 class MysqlPDO extends \PDO {
     protected $txnCounter = 0;

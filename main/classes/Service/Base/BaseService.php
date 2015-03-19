@@ -1,16 +1,20 @@
 <?php
 
-namespace Service\Base;
+namespace Services\Base;
 
 /**
  * Parent of all service[controller].
  *
  */
-abstract class BaseService {
+abstract class BaseService
+    implements \Consts\ErrnoConst {
 
-    const
-        REPLY_PAYLOAD = 'payload',
-        REPLY_SERVER_TIME = 'time';
+    /**
+     * Request input verifier[validator].
+     *
+     * @var \Utils\VerifyInputs
+     */
+    private static $_verifier = NULL;
 
     /**
      * @var \System\ResponseHandler
@@ -21,6 +25,9 @@ abstract class BaseService {
      * @var \System\RequestHandler
      */
     private static $_request;
+
+    protected function __construct() {
+    }
 
     /**
      * @param \System\RequestHandler $request
@@ -45,11 +52,16 @@ abstract class BaseService {
         return $instances[$clsName];
     }
 
-    protected function __construct() {
-    }
-
     public final function __clone() {
         throw new \Exception('You can not clone a singleton.');
+    }
+
+    protected final function _verifyInt( /* $arg1, $arg2, ... */) {
+        if (self::$_verifier === NULL) {
+            self::$_verifier = \Utils\VerifyInputs::getInstance();
+        }
+
+        call_user_func_array(array(self::$_verifier, 'int'), func_get_args());
     }
 
     /**
@@ -75,6 +87,17 @@ abstract class BaseService {
     }
 
     /**
+     * @deprecated
+     */
+    protected final function _enableTransaction() {
+        self::$_request->enableTransaction();
+    }
+
+    protected final function _lockUser($uid, $reason = '') {
+        \System\LockStep::lockUser($uid, $reason);
+    }
+
+    /**
      * Will overwrite previous payload.
      *
      * @param array $palyload
@@ -84,24 +107,7 @@ abstract class BaseService {
     }
 
     protected final static function _currentOpTime() {
-        return \System\RequestHandler::getInstance()->currentOpTime();
-    }
-
-    public function beforeAction($params) {
-        if (isset($params['uid'])) {
-            \Model\JobModel::wakeupPendingJobs((int)$params['uid']);
-        }
-    }
-
-    /**
-     * A helper method to get current uid.
-     *
-     * Calculated from token.
-     *
-     * @return int|NULL
-     */
-    public final function getUid() {
-        return self::$_request->getUid();
+        return self::$_request->currentOpTime();
     }
 
 }

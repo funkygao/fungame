@@ -9,6 +9,69 @@ function is_assoc(array $array) {
     return !isset($array[0]);
 }
 
+function shuffle_assoc(array &$assoc) {
+    $keys = array_keys($assoc);
+    shuffle($keys);
+    $random = array();
+    foreach ($keys as $key) {
+        $random[$key] = $assoc[$key];
+    }
+    $assoc = $random;
+}
+
+/**
+ * Weighted rand.
+ *
+ * http://gamedev.stackexchange.com/questions/60299/data-structure-for-random-outcome-from-a-hit-probability-table
+ *
+ * @param array $weightedValues e,g array('Ore'=> 20, 'Food'=> 40, 'Silver'=> 10, 'Wood'=> 20)
+ * @return string
+ */
+function wrand(array $weightedValues) {
+    $rand = mt_rand(1, (int)array_sum($weightedValues));
+
+    foreach ($weightedValues as $key => $value) {
+        $rand -= $value;
+        if ($rand <= 0) {
+            return $key;
+        }
+    }
+}
+
+function random_string($length) {
+    return substr(str_shuffle("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+        0, $length);
+}
+
+function rand_percent($percent) {
+    return rand(1, 100) <= $percent;
+}
+
+function xor_encrypt($message, $key) {
+    $messageLen = strlen($message);
+    $keyLen = strlen($key);
+    $newmsg = '';
+
+    for ($i = 0; $i < $messageLen; $i++) {
+        $newmsg = $newmsg . ($message[$i] ^ $key[$i % $keyLen]);
+    }
+
+    return base64_encode($newmsg);
+}
+
+function xor_decrypt($encrypted_message, $key) {
+    $msg = base64_decode($encrypted_message);
+    $messageLen = strlen($msg);
+    $keyLen = strlen($key);
+    $newmsg = '';
+
+    for ($i = 0; $i < $messageLen; $i++){
+        $newmsg = $newmsg . ($msg[$i] ^ $key[$i % $keyLen]);
+    }
+
+    return $newmsg;
+}
+
 /**
  * Convert unix timestamp(int) to mysql timestamp(string).
  *
@@ -16,13 +79,13 @@ function is_assoc(array $array) {
  * @return string
  */
 function ts_unix2mysql($unix_timestamp) {
-    return gmdate('Y-m-d H:i:s', $unix_timestamp); 
+    return gmdate('Y-m-d H:i:s', $unix_timestamp); // because mysql uses UTC timezone, timestamp col has no zone info
 }
 
 /**
  * Convert mysql timestamp(string) to unix timestamp(int).
  *
- * @param $mysql_timestamp
+ * @param string $mysql_timestamp e,g. '2014-07-28 10:36:19'
  * @return int
  */
 function ts_mysql2unix($mysql_timestamp) {
@@ -89,32 +152,51 @@ function array_deep_del(array &$arr, $path) {
     unset($arr[$pieces[$n]]);
 }
 
-function random_string($length) {
-    return substr(str_shuffle("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-        0, $length);
+/**
+ * FIXME 考虑更好的解决方案防止空数据产生
+ * 过滤掉数组里所有的NULL 和 ''
+ * @param array $arr
+ * @return array
+ */
+function array_deep_filter($arr) {
+    if (is_array($arr)) { // recursive, so it's required
+        $arr = array_filter($arr, function ($var) {
+            return ($var !== NULL && $var !== '');
+        });
+        foreach ($arr as $k => $v) {
+            $arr[$k] = array_deep_filter($v);
+        }
+    }
+    return $arr;
 }
 
-// TODO not fully tested
-function get_caller_info() {
-    $trace = debug_backtrace();
-    $size = (count($trace) - 1);
-    while ($size) {
-        $test = (strpos($trace[0]['function'], 'call_user_fun') === FALSE ? 0 : 1);
-        $test += (strpos($trace[0]['function'], 'query') === FALSE ? 0 : 1);
-        $test += (strpos($trace[0]['class'], 'Shard') === FALSE ? 0 : 1);
-        $test += (strpos($trace[0]['function'], 'getCallInfo') === FALSE ? 0 : 1);
-        $test += (stripos($trace[0]['class'], 'Cache') === FALSE ? 0 : 1);
-        $test += (stripos($trace[0]['class'], 'Database') === FALSE ? 0 : 1);
-        $test += (stripos($trace[0]['class'], 'Profiler') === FALSE ? 0 : 1);
-        $test += (stripos($trace[0]['class'], 'DataTables') === FALSE ? 0 : 1);
-
-        if (!$test) {
-            return $trace[0];
-        }
-
-        array_shift($trace);
-        $size = (count($trace) - 1);
+function rest_call($url, $timeout = 4) {
+    static $handle = NULL; // reuse connections to the same server
+    if ($handle === NULL) {
+        $handle = curl_init();
     }
+
+    curl_setopt($handle, CURLOPT_URL, $url);
+    curl_setopt($handle, CURLOPT_HTTPHEADER, array(
+        'Accept: application/json',
+        'Content-Type: application/json',
+    ));
+    curl_setopt($handle, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($handle, CURLOPT_TIMEOUT, $timeout); // in sec
+    $ret = curl_exec($handle);
+    $errno = curl_errno($handle);
+    if ($errno > 0) {
+        // e,g timeout
+        $ret = array();
+        $ret['_err'] = $errno;
+    } else {
+        $ret = json_decode($ret, TRUE);
+    }
+
+    //curl_close($handle);
+    return $ret;
 }
 
 function get_client_ip() {
@@ -145,6 +227,15 @@ function get_client_ip() {
     return trim($ip);
 }
 
+function get_domain() {
+    $scheme = $_SERVER['HTTPS'] ? 'https://' : 'http://';
+    $port = '';
+    if ($_SERVER["SERVER_PORT"] != '80') {
+        $port = ':'.$_SERVER["SERVER_PORT"];
+    }
+    return $scheme.$_SERVER['SERVER_NAME'].$port.'/';
+}
+
 /**
  * Get current request context.
  *
@@ -158,7 +249,7 @@ function request_ctx() {
     static $seq = 0; // within a single request
 
     $request_ctx['seq'] = ++$seq;
-    $request_ctx['elapsed'] = 1000 * (microtime(TRUE) - $_SERVER['REQUEST_TIME_FLOAT']); // ms
+    $request_ctx['elapsed'] = round(microtime(TRUE) - $_SERVER['REQUEST_TIME_FLOAT'], 5);
 
     if (isset($request_ctx['callee'])) {
         return $request_ctx;
@@ -167,12 +258,87 @@ function request_ctx() {
     // the following keeps the same within a http request
     $request_ctx['host'] = empty($_SERVER['SERVER_ADDR']) ? 'localhost' : $_SERVER['SERVER_ADDR']; // current web server ip
     $request_ctx['ip'] = get_client_ip();
+    // FIXME can't trust client generated sid, TODO will generate on server side, on call.init
     $request_ctx['sid'] = empty($_REQUEST['sid']) ? 0 : $_REQUEST['sid']; // client(e,g. flash) passed in session id
     $uri = empty($_SERVER['REQUEST_URI']) ? get_included_files()[0] : $_SERVER['REQUEST_URI'];
     $uri = parse_url($uri, PHP_URL_PATH); // normalize
     $method = empty($_SERVER['REQUEST_METHOD']) ? 'CLI' : $_SERVER['REQUEST_METHOD'];
-    $request_ctx['callee'] = $method . '+' . $uri . '+' . dechex(mt_rand());
+    $requestId = dechex(mt_rand()); // keep unchaged within a request
+    //$requestId = hexdec(uniqid()); // TODO
+    $request_ctx['rid'] = $requestId;
+    $request_ctx['callee'] = $method . '+' . $uri . '+' . $requestId;
 
     return $request_ctx;
 }
 
+/**
+ * @param $timeStamp
+ * @param $timeStamp2 The date time to compare to
+ * @return mixed
+ */
+function days_diff($timeStamp, $timeStamp2) {
+    return date_diff(
+        date_create(gmdate("y-m-d", $timeStamp)),
+        date_create(gmdate("y-m-d", $timeStamp2))
+    )->days;
+}
+
+function rsa_encrypt($method, $key, $data, $rsa_bit = 1024) {
+    $inputLen = strlen($data);
+    $offSet = 0;
+    $i = 0;
+ 
+    $maxDecryptBlock = $rsa_bit / 8 - 11;
+ 
+    $en = '';
+ 
+    // 对数据分段加密
+    while ($inputLen - $offSet > 0) {
+        //echo $i . "\n";
+
+        $cache = '';
+ 
+        if ($inputLen - $offSet > $maxDecryptBlock) {
+            //echo "a\n";
+            $method(substr($data, $offSet, $maxDecryptBlock), $cache, $key);
+        } else {
+            //echo "b\n";
+            $method(substr($data, $offSet, $inputLen - $offSet), $cache, $key);
+        }
+ 
+        $en = $en . $cache;
+ 
+        $i++;
+        $offSet = $i * $maxDecryptBlock;
+    }
+    return $en;
+}
+ 
+function rsa_decrypt($method, $key, $data, $rsa_bit = 1024) {
+    $inputLen = strlen($data);
+    $offSet = 0;
+    $i = 0;
+ 
+    $maxDecryptBlock = $rsa_bit / 8;
+ 
+    $de = '';
+    $cache = '';
+ 
+    // 对数据分段解密
+    while ($inputLen - $offSet > 0) {
+
+        $cache = '';
+ 
+        if ($inputLen - $offSet > $maxDecryptBlock) {
+            $method(substr($data, $offSet, $maxDecryptBlock), $cache, $key);
+        } else {
+            $method(substr($data, $offSet, $inputLen - $offSet), $cache, $key);
+        }
+ 
+        $de = $de . $cache;
+ 
+        $i = $i + 1;
+        $offSet = $i * $maxDecryptBlock;
+    }
+    return $de;
+}

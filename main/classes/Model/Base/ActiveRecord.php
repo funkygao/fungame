@@ -113,13 +113,13 @@ abstract class ActiveRecord
         foreach ($table->pk as $key) {
             if (isset($row[$key])) {
                 if (str_contains($row[$key], '.')) {
-                    //throw new \InvalidArgumentException("Primary key can't contain '.': {$row[$key]}, row: " . json_encode($row));
+                    //throw new \ExpectedErrorException("Primary key can't contain '.': {$row[$key]}, row: " . json_encode($row), self::ERRNO_SYS_INVALID_ARGUMENT);
                     // FIXME uncomment the exception after Li change game data
                 }
 
                 $cacheKey .= $row[$key] . '.';
             } else {
-                throw new \InvalidArgumentException('Emtpy pk:' . $key);
+                throw new \ExpectedErrorException('Emtpy pk:' . $key, self::ERRNO_SYS_INVALID_ARGUMENT);
             }
         }
 
@@ -147,13 +147,13 @@ abstract class ActiveRecord
      *
      * @param array $row
      * @param bool $fromDb
-     * @throws \InvalidArgumentException
+     * @throws \ExpectedErrorException
      * @return ActiveRecord
      */
     public final static function instance(array $row = array(), $fromDb = FALSE) {
         $table = self::table();
         if ($table->shardColumn && empty($row[$table->shardColumn])) {
-            throw new \InvalidArgumentException('Empty hintId in row');
+            throw new \ExpectedErrorException('Empty hintId in row', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         $modelClassWithNamespace = get_called_class();
@@ -231,19 +231,19 @@ abstract class ActiveRecord
     private function _validateColumnValue(Table $table, $column, $value) {
         if ($table->columns[$column]->type == self::JSON
             && !is_null($value) && !is_array($value)) {
-            //throw new \InvalidArgumentException("{$table->name} JSON column[$column] must be array, $value given");
+            throw new \ExpectedErrorException("{$table->name} JSON column[$column] must be array, $value given", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         if ($table->columns[$column]->type == self::DATETIME
             && !is_numeric($value)) {
-            //throw new \InvalidArgumentException("{$table->name} Timestamp column[$column] must be int, $value given");
+            throw new \ExpectedErrorException("{$table->name} Timestamp column[$column] must be int, $value given", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         if ($table->columns[$column]->type == self::UINT
             && $value < 0) {
-            //throw new \InvalidArgumentException("{$table->name} int column[$column] must be positive, $value given");
+            throw new \ExpectedErrorException("{$table->name} int column[$column] must be positive, $value given", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         if ($table->columns[$column]->type == self::VER
             && $value < 0) {
-            //throw new \InvalidArgumentException("{$table->name} VER column[$column] must be positive, $value given");
+            throw new \ExpectedErrorException("{$table->name} VER column[$column] must be positive, $value given", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
     }
 
@@ -254,7 +254,7 @@ abstract class ActiveRecord
 
     public function equals($that) {
         if (!($that instanceof ActiveRecord)) {
-            throw new \InvalidArgumentException("Equals with incompatible record: $that");
+            throw new \ExpectedErrorException("Equals with incompatible record: $that", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         foreach ($this->_row as $name => $value) {
@@ -274,12 +274,12 @@ abstract class ActiveRecord
     public final function __get($column) {
         if ($this->_deleted) {
             $tableName = self::table()->name;
-            throw new \InvalidArgumentException("Cannot access deleted record column: $tableName: $column");
+            throw new \ExpectedErrorException("Cannot access deleted record column: $tableName: $column", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (!array_key_exists($column, $this->_row)) {
             $tableName = self::table()->name;
-            throw new \InvalidArgumentException("Unknown column: $tableName: $column");
+            throw new \ExpectedErrorException("Unknown column: $tableName: $column", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         $value = $this->_row[$column];
@@ -295,27 +295,27 @@ abstract class ActiveRecord
         $table = self::table();
         if ($this->_deleted) {
             $tableName = $table->name;
-            throw new \InvalidArgumentException("Cannot access deleted record column, $tableName: $column, $value");
+            throw new \ExpectedErrorException("Cannot access deleted record column, $tableName: $column, $value", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (in_array($column, $table->pk)) {
-            throw new \InvalidArgumentException("Primary key[$column] is readonly");
+            throw new \ExpectedErrorException("Primary key[$column] is readonly", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (!array_key_exists($column, $this->_row)) {
             $tableName = $table->name;
-            throw new \InvalidArgumentException("Unknown column: $tableName: $column");
+            throw new \ExpectedErrorException("Unknown column: $tableName: $column", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if ($this->_verColumn !== NULL && $column == $this->_verColumn->name) {
-            throw new \InvalidArgumentException("Cannot assign ver column: $column");
+            throw new \ExpectedErrorException("Cannot assign ver column: $column", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if ($table->columns[$column]->delta) {
-            throw new \InvalidArgumentException("Cannot assign delta column: $column, use increase()");
+            throw new \ExpectedErrorException("Cannot assign delta column: $column, use increase()", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         if ($table->columns[$column]->critical) {
-            throw new \InvalidArgumentException("Cannot assign critical column: $column, use serialUpdate()");
+            throw new \ExpectedErrorException("Cannot assign critical column: $column, use serialUpdate()", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         $this->_validateColumnValue($table, $column, $value);
@@ -325,7 +325,7 @@ abstract class ActiveRecord
             $value = $this->$setter($value);
             if (is_null($value)) {
                 $clz = get_called_class();
-                throw new \InvalidArgumentException("$clz::$setter forgot to return value");
+                throw new \ExpectedErrorException("$clz::$setter forgot to return value", self::ERRNO_SYS_INVALID_ARGUMENT);
             }
         }
         return $this->_assignColumnValue($column, $value);
@@ -333,7 +333,7 @@ abstract class ActiveRecord
 
     public final function __isset($name) {
         if ($this->_deleted) {
-            throw new \InvalidArgumentException("Cannot access deleted record column");
+            throw new \ExpectedErrorException("Cannot access deleted record column", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         return isset($this->_row[$name]);
@@ -393,31 +393,32 @@ abstract class ActiveRecord
      * @param int $delta
      * @param null|string $whereClause
      * @return int new value of this column
-     * @throws \InvalidArgumentException
+     * @throws \ExpectedErrorException
      */
     public final function increase($columnName, $delta, $whereClause = NULL) {
         $table = self::table();
         if ($this->_deleted) {
             $tableName = $table->name;
-            throw new \InvalidArgumentException("Cannot access deleted record column, $tableName: $columnName, $delta");
+            throw new \ExpectedErrorException("Cannot access deleted record column, $tableName: $columnName, $delta",
+                self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (in_array($columnName, $table->pk)) {
-            throw new \InvalidArgumentException("Primary key[$columnName] is readonly");
+            throw new \ExpectedErrorException("Primary key[$columnName] is readonly", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (!$table->columns[$columnName]->delta) {
-            throw new \InvalidArgumentException("Only delta column permitted: $columnName");
+            throw new \ExpectedErrorException("Only delta column permitted: $columnName", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (!array_key_exists($columnName, $this->_row)) {
             $tableName = $table->name;
-            throw new \InvalidArgumentException("Unknown column: $tableName: $columnName");
+            throw new \ExpectedErrorException("Unknown column: $tableName: $columnName", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if ($table->columns[$columnName]->type != self::INTEGER
             && $table->columns[$columnName]->type != self::UINT) {
-            throw new \InvalidArgumentException("Delta column must be integer type");
+            throw new \ExpectedErrorException("Delta column must be integer type", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         $delta = $table->columns[$columnName]->cast($delta);
@@ -427,7 +428,7 @@ abstract class ActiveRecord
             $delta = $this->$setter($delta);
             if (is_null($delta)) {
                 $clz = get_called_class();
-                throw new \InvalidArgumentException("$clz::$setter forgot to return value");
+                throw new \ExpectedErrorException("$clz::$setter forgot to return value", self::ERRNO_SYS_INVALID_ARGUMENT);
             }
         }
 
@@ -490,15 +491,21 @@ abstract class ActiveRecord
     }
 
     public static final function undoCreates() {
-        foreach (self::$_createdModels as $model) {
-            if ($model->table()->name == 'UserLookup') {
-                // 用户注册失败，那么Application会undoCreates，会把UserLookup删除该记录
-                // 但可能造成该用户部分数据有、部分没有，导致其他用户地图浏览到他时抛异常
-                continue;
-            }
+        try {
+            foreach (self::$_createdModels as $model) {
+                if ($model->table()->name == 'UserLookup') {
+                    // 用户注册失败，那么Application会undoCreates，会把UserLookup删除该记录
+                    // 但可能造成该用户部分数据有、部分没有，导致其他用户地图浏览到他时抛异常
+                    // FIXME: 但一旦用户注册时出错，那么该用户就再也无法登录成功了
+                    continue;
+                }
 
-            $model::table()->delete($model->hintId(), $model->pkValues());
+                $model::table()->delete($model->hintId(), $model->pkValues());
+            }
+        } catch (\Exception $ignore) {
+            self::_getLogger()->exception($ignore);
         }
+
     }
 
     public final function pkValues() {
@@ -840,7 +847,21 @@ abstract class ActiveRecord
                                          $cacheKey = '') {
         $models = array();
         foreach (self::table()->select($hintId, $where, $args, '*', $cacheKey) as $row) {
-            $models[] = self::instance($row, TRUE);
+            $model = self::instance($row, TRUE);
+            if (!$model->isDeleted()) {
+                $models[] = $model;
+            }
+        }
+        return $models;
+    }
+
+    public final static function findAllShards($where, array $args = array()) {
+        $models = array();
+        foreach (self::table()->selectShards($where, $args) as $row) {
+            $model = self::instance($row, TRUE);
+            if (!$model->isDeleted()) {
+                $models[] = $model;
+            }
         }
         return $models;
     }
@@ -905,7 +926,7 @@ abstract class ActiveRecord
         foreach ($args as $arg) {
             if (is_object($arg)) {
                 // db column is always primitive type
-                throw new \InvalidArgumentException('Invalid args: ' . json_encode($args));
+                throw new \ExpectedErrorException('Invalid args: ' . json_encode($args), self::ERRNO_SYS_INVALID_ARGUMENT);
             }
 
             $cachePath .= '.' . $arg;
@@ -922,7 +943,7 @@ abstract class ActiveRecord
      * when get() returns NULL, it will create a new row instantly.
      *
      * @return NULL|ActiveRecord Null if not found
-     * @throws \InvalidArgumentException
+     * @throws \ExpectedErrorException
      */
     public static function get(/* primary_key1, primary_key2, ... */) {
         $args = func_get_args();
@@ -930,7 +951,8 @@ abstract class ActiveRecord
         if (count($args) != count($table->pk)) {
             $n1 = count($args);
             $n2 = count($table->pk);
-            throw new \InvalidArgumentException("Table {$table->name} primary key count mismatch: $n1 != $n2");
+            throw new \ExpectedErrorException("Table {$table->name} primary key count mismatch: $n1 != $n2",
+                self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         // lookup cache
@@ -940,7 +962,7 @@ abstract class ActiveRecord
             if (NULL !== $recordInCache) {
                 if (!is_object($recordInCache)) {
                     // FIXME kill this block, just for debug
-                    throw new \InvalidArgumentException(json_encode($recordInCache));
+                    throw new \ExpectedErrorException(json_encode($recordInCache), self::ERRNO_SYS_INVALID_ARGUMENT);
                 }
                 if ($recordInCache->isDeleted()) {
                     return NULL;
@@ -973,7 +995,7 @@ abstract class ActiveRecord
             return NULL;
         }
         if (count($models) > 1) {
-            throw new \InvalidArgumentException("Found more than 1 rows");
+            throw new \ExpectedErrorException("Found more than 1 rows", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         return $models[0];
@@ -1026,12 +1048,12 @@ abstract class ActiveRecord
      * First argument is ALWAYS hintId if sharded.
      *
      * @return ActiveRecord[] Array of Model
-     * @throws \InvalidArgumentException
+     * @throws \ExpectedErrorException
      */
     public final static function getAll(/* primary_key1, primary_key2, ... */) {
         $pks = func_get_args();
         if (count($pks) == 0) {
-            throw new \InvalidArgumentException("Are you sure to get All in DB?");
+            throw new \ExpectedErrorException("Are you sure to get All in DB?", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         
         if (count($pks) != count($pks, COUNT_RECURSIVE)) {
@@ -1039,7 +1061,7 @@ abstract class ActiveRecord
         }
         $table = self::table();
         if (count($pks) > count($table->pk)) {
-            throw new \InvalidArgumentException('Primary key count mismatch');
+            throw new \ExpectedErrorException('Primary key count mismatch', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         // '_all' will never conflict with cache key of model class name

@@ -2,8 +2,8 @@
 
 namespace System;
 
-// TODO do we need ack like TCP?
-final class RequestHandler implements \Consts\LoggerConst {
+final class RequestHandler implements \Consts\LoggerConst, \Consts\AppConst,
+    \Consts\ErrnoConst {
 
     // HTTP related attributes
     private $_request, $_cookie, $_get, $_post,  $_file, $_uri;
@@ -20,6 +20,31 @@ final class RequestHandler implements \Consts\LoggerConst {
      */
     private $_opTime = 0;
 
+    /**
+     * Current player uid.
+     *
+     * May be empty. e,g. call.init
+     *
+     * @var int
+     */
+    private $_uid = 0;
+
+    /*
+     * Call commit
+     */
+    private $_isCommit = FALSE;
+
+    private $_autoCallback = FALSE;
+
+    public $transactional = FALSE;
+
+    private static $_noTokenServices = array(
+        'actor' => TRUE,
+        'debug' => TRUE,
+        'tools' => TRUE,
+        'payment' => TRUE,
+    );
+
     public static function getInstance() {
         static $instance = NULL;
         if (NULL === $instance) {
@@ -29,7 +54,7 @@ final class RequestHandler implements \Consts\LoggerConst {
         return $instance;
     }
 
-    private function __construct() {
+    public function __construct() {
         $input = json_decode(file_get_contents("php://input"), true); // TODO msgpack
         if ($input && is_array($input)) {
             $this->_request = array_merge($_REQUEST, $input);
@@ -48,88 +73,76 @@ final class RequestHandler implements \Consts\LoggerConst {
         self::$_logger = \System\Logger::getLogger(__CLASS__);
     }
 
-    public final function __clone() {
+    public function __clone() {
         throw new \Exception('You can not clone a singleton.');
     }
 
+    /**
+     * @param string $serviceClassName
+     * @return bool
+     */
+    public function isTokenlessService($serviceClassName) {
+        return isset(self::$_noTokenServices[strtolower($serviceClassName)]);
+    }
+
     public function validate() {
-        if ($this->_uri != 'call/commit') {
-            // 非batch请求的验证
+        $params = $this->getParams();
+
+        if ($this->needToken()) {
+            $payload = \Manager\UserManager::getInstance()->tokenPayload($params['token']);
+            $this->setUid($payload['uid']);
+        }
+
+        if ($this->request('class') == 'actor'
+            || ($this->request('class') == 'call'
+                && $this->request('method') == 'commit')) {
+            $this->_autoCallback = TRUE;
+        }
+
+        // FIXME: remove before release
+        if ($params['ua'] == 'ci-robot') {
+            $this->_autoCallback = TRUE;
+            $this->setUid($params['uid']);
             return $this;
         }
 
-        // batch请求的验证
-
-        // #. token and seq validation
-        $params = $this->getParams();
-        $token = $params['token'];
-        if (!$token) {
-            throw new \InvalidArgumentException("Empty token");
-        }
-        $uid = \Model\TokenModel::getInstance()->token2uid($token);
-        if (!$uid) {
-            throw new \InvalidArgumentException("Invalid token: $token");
-        }
-        $lastToken = $token;
-        //$lastToken = \Driver\CacheFactory::instance()->get("token:$uid");
-        if ($lastToken != $token) {
-            // cheat, or concurrent login session
-            // TODO
+        if ($this->request('class') != 'call'
+            || $this->request('method') != 'commit') {
+            // 非修改请求不验证
+            return $this;
         }
 
-        $seq = $params['seq'];
+        $this->_isCommit = TRUE;
+
+        // #. gamedata版本号是否匹配
+        $gamedataVer = $params['cv']; // config ver, sent from client
+        $expectedVer = \System\GameData::getAssetsVersion();
+        if ($gamedataVer != $expectedVer) {
+            throw new \RestartGameException("Version mismatch: expected $expectedVer, got $gamedataVer");
+        }
+
+        $seq = $this->request('seq');
         if (!$seq) {
-            throw new \InvalidArgumentException("Empty sequence");
+            throw new \ExpectedErrorException("Empty sequence", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
-        $lastAckedSeq = 1; // TODO
 
-        // #. cmds validation
-        $cmds = $params['cmds'];
-        if (count($cmds) > 80) { // 客户端目前队列的max len就是80，超了，就是挂机
-            $n = count($cmds);
-            self::$_logger->warn(self::CATEGORY_CHEAT, array(
-                'type' => 'cmds',
-                'n' => $n,
-                'cmds' => $cmds,
+        $redis = \Driver\RedisFactory::instance();
+        $expectedSeq = $redis->get($this->getSeqRedisKey());
+        if ($seq == $expectedSeq - 1) { // 回放上一次请求的result
+            $lastResult = $redis->get($this->getLastResultRedisKey());
+            \System\ResponseHandler::getInstance()->printHeader();
+            print $lastResult;
+            exit();
+        } elseif ($seq != $expectedSeq) {
+            self::$_logger->error('seqerr', array(
+                'msg' => "Expected seq: $expectedSeq, got: $seq",
+                'request' => $this->_request,
+                'last_result' => $redis->get($this->getLastResultRedisKey()),
             ));
-
-            throw new BatchTooManyCommands("$n: " . json_encode($cmds)); // FIXME duplicated log
-        }
-
-        // validate optime, keep client/server time diff within acceptable limit
-        $optimes = array_map(function ($cmd) {
-            $opTime = (int)$cmd['at'];
-            if (!$opTime) {
-                throw new \InvalidArgumentException("No optime");
-            }
-            return $opTime;
-        }, $cmds);
-        $minOptime = min($optimes);
-        $maxOptime = max($optimes);
-        $commitTime = $params['ct'];
-        if (!$commitTime) {
-            throw new \InvalidArgumentException("Empty commit time");
-        }
-        $this->_validateOptime($commitTime, $minOptime, $maxOptime);
-        $sentTime = $params['st']; // to calc round trip time
-        if (time() - $sentTime > 3) { // FIXME should be in ms
-            // round trip time so long?
-            self::$_logger->warn('rtt', array(
-                'sentTime' => $sentTime,
-                'req' => $this->request()
-            ));
+            throw new \RestartGameException("Seq key [{$this->getSeqRedisKey()}] expected: $expectedSeq, got: $seq");
         }
 
         return $this;
-    }
-
-    private function _validateOptime($commitTime, $minOptime, $maxOptime) {
-        // 首先验证batch发送时间和每个command的optime不能超过XX秒
-        $sendDiff = abs($commitTime, $maxOptime);
-
-        $latency = abs($commitTime, $this->getRequestTime());
-
-        // TODO borrow from RS IQ
     }
 
     public function getParams() {
@@ -144,15 +157,6 @@ final class RequestHandler implements \Consts\LoggerConst {
         return $params;
     }
 
-    public function getUid() {
-        $params = $this->getParams();
-        if (!isset($params['token'])) {
-            return NULL;
-        }
-
-        return \Model\TokenModel::getInstance()->token2uid($params['token']);
-    }
-
     public function setupRequestOpTime() {
         /*
          * we can't trust user's params here
@@ -163,12 +167,11 @@ final class RequestHandler implements \Consts\LoggerConst {
     }
 
     public function setOpTime($opTime) {
-        if (!$opTime) {
-            self::$_logger->warn(self::CATEGORY_WARNING, array(
+        if (!$opTime || $opTime < 1407729834) {
+            // 1407729834 = 2014-08-11
+            self::$_logger->panic(self::CATEGORY_WARNING, array(
                 'msg' => 'empty opTime',
             ));
-
-            $opTime = $this->getRequestTime();
         }
 
         $this->_opTime = $opTime;
@@ -180,15 +183,22 @@ final class RequestHandler implements \Consts\LoggerConst {
      * @return int
      */
     public function currentOpTime() {
-        return $this->_opTime;
-    }
-
-    public function getRequestTimeFloat() {
-        return $_SERVER['REQUEST_TIME_FLOAT'];
+        if ($this->_opTime) {
+            return $this->_opTime;
+        }
+        return $this->getRequestTime();
     }
 
     public function getRequestTime() {
-        return $_SERVER['REQUEST_TIME'];
+        return REQUEST_TIME;
+    }
+
+    public function setUid($uid) {
+        $this->_uid = (int)$uid;
+    }
+
+    public function getUid() {
+        return $this->_uid;
     }
 
     public function uri() {
@@ -209,6 +219,17 @@ final class RequestHandler implements \Consts\LoggerConst {
         }
 
         return isset($this->_file[$key]) ? $this->_file[$key] : NULL;
+    }
+
+    public function enableTransaction() {
+        $this->transactional = TRUE;
+    }
+
+    /**
+     * @return array
+     */
+    public function export() {
+        return $this->_request;
     }
 
     public function get($key = NULL) {
@@ -239,6 +260,58 @@ final class RequestHandler implements \Consts\LoggerConst {
         return $this->request('class') . ':' . $this->request('method');
     }
 
-}
+    public function faeReason() {
+        $cmd = $this->request('params.op');
+        if ($cmd) {
+            $opInfo = array(
+                'op' => $cmd,
+                'args' => $this->request('params.args'),
+            );
+            $reason = json_encode($opInfo);
+        } else {
+            // non-batch call, e,g. actor callback
+            $reason = $this->actionName();
+        }
 
-class BatchTooManyCommands extends \System\GameException {}
+        return $reason;
+    }
+
+    public function isCommit() {
+        return $this->_isCommit;
+    }
+
+    public function isAutoCallback() {
+        return $this->_autoCallback;
+    }
+
+    // FIXME why?
+    public function isFromActord() {
+        return \System\RequestHandler::getInstance()->request('class') == self::CONTROLLER_CALLED_BY_SCHEDULER;
+    }
+
+    public function getSeqRedisKey() {
+        return 'seq:' . $this->_uid;
+    }
+
+    public function getLastResultRedisKey() {
+        return 'last_result:' . $this->_uid;
+    }
+
+    public function needToken() {
+        $class = $this->request('class');
+        $method = $this->request('method');
+        $params = $this->getParams(); // FIXME: remove this when release
+
+        if (self::isTokenlessService($class)
+            || (isset($params['ua']) && $params['ua'] == 'ci-robot')) {
+            return false;
+        }
+
+        if ($class != 'call' || $method == 'commit') {
+            return true;
+        }
+
+        return false;
+    }
+
+}

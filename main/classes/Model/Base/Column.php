@@ -2,8 +2,7 @@
 
 namespace Model\Base;
 
-final class Column
-    implements \Consts\ColumnConst {
+final class Column implements \Consts\ColumnConst, \Consts\ErrnoConst {
 
     /**
      * The true name of this column.
@@ -87,10 +86,10 @@ final class Column
         }
 
         if (!isset($this->name)) {
-            throw new \InvalidArgumentException('Column name must be declared');
+            throw new \ExpectedErrorException('Column name must be declared', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         if (!isset($this->type)) {
-            throw new \InvalidArgumentException('Column type must be declared');
+            throw new \ExpectedErrorException('Column type must be declared', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (NULL === $this->default) {
@@ -112,7 +111,7 @@ final class Column
                         break;
 
                     case self::STRING:
-                        //$this->default = '';  FIXME some uniq column UserLookup.accountName
+                        $this->default = '';
                         break;
                     case self::DATETIME:
                         $this->default = 1414368000; // default [2014-10-27 00:00:00] because mysql 5.6 can not insert 1970-01-01 00:00:00
@@ -137,7 +136,7 @@ final class Column
         switch ($this->type) {
             case self::STRING:
                 if (!empty($this->choices) && !in_array($value, $this->choices)) {
-                    throw new \InvalidArgumentException("$value not within choices");
+                    throw new \ExpectedErrorException("$value not within choices", self::ERRNO_SYS_INVALID_ARGUMENT);
                 }
 
                 return (string)$value;
@@ -146,13 +145,13 @@ final class Column
             case self::INTEGER:
             case self::UINT:
                 if (!is_numeric($value)) {
-                    throw new \InvalidArgumentException("Int expected, got $value");
+                    throw new \ExpectedErrorException("Int expected, got $value", self::ERRNO_SYS_INVALID_ARGUMENT);
                 }
                 return (int)$value;
 
             case self::DECIMAL:
                 if (!is_numeric($value)) {
-                    throw new \InvalidArgumentException("Double expected, got $value");
+                    throw new \ExpectedErrorException("Double expected, got $value", self::ERRNO_SYS_INVALID_ARGUMENT);
                 }
                 return round((double)$value, 2);
 

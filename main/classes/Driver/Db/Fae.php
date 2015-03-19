@@ -20,7 +20,6 @@ class Fae implements Driver {
     public function query($pool, $table, $hintId, $sql, array $args = array(),
                           $cacheKey = '') {
         list($shardName, $_, $_) = ShardInfo::pool2shard($pool);
-
         $mysqlResult = \FaeEngine::client()->my_query(
             \FaeEngine::ctx(),
             $shardName, $table, $hintId,
@@ -41,8 +40,28 @@ class Fae implements Driver {
         return $result;
     }
 
-    public function queryShards($table, $sql, array $args = array()) {
-        // TODO and will do
+    public function queryShards($pool, $table, $sql, array $args = array()) {
+        list($shardName, $_, $_) = ShardInfo::pool2shard($pool);
+        $mysqlResult = \FaeEngine::client()->my_query_shards(
+            \FaeEngine::ctx(),
+            $shardName,
+            $table,
+            $sql,
+            $args
+        );
+
+        $result = new \Driver\Db\DbResult();
+        $result->setAffectedRows($mysqlResult->rowsAffected);
+        $result->setInsertId($mysqlResult->lastInsertId);
+        if (!$mysqlResult->rowsAffected) {
+            // SELECT
+            if (!empty($mysqlResult->rows)) {
+                $result->setResults($this->_fetch_assoc_rows($mysqlResult->cols,
+                    $mysqlResult->rows));
+            }
+        }
+
+        return $result;
     }
 
     // TODO use array_flip($columns)

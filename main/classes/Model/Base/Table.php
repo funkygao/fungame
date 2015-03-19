@@ -7,8 +7,7 @@ namespace Model\Base;
  *
  * Use Table CRUD with care! We prefer to use Model\Base\ActiveRecord.
  */
-final class Table
-    implements \Consts\ColumnConst {
+final class Table implements \Consts\ColumnConst, \Consts\ErrnoConst {
 
     /**
      * Reflection class of {@link Model}.
@@ -120,7 +119,7 @@ final class Table
         $this->modelClass = new \ReflectionClass($modelClassName);
         if (($storage = $this->modelClass->getStaticPropertyValue('storage', NULL))) {
             if ($storage != self::STORAGE_DB && $storage != self::STORAGE_COUCHBASE) {
-                throw new \InvalidArgumentException("invalid AR storage: $storage");;
+                throw new \ExpectedErrorException("invalid AR storage: $storage", self::ERRNO_SYS_INVALID_ARGUMENT);
             }
             $this->storage = $storage;
         } else {
@@ -129,17 +128,17 @@ final class Table
         if (($pool = $this->modelClass->getStaticPropertyValue('pool', NULL))) {
             $this->pool = $pool;
         } else {
-            throw new \InvalidArgumentException('empty pool declaration');
+            throw new \ExpectedErrorException('empty pool declaration', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         if (($table = $this->modelClass->getStaticPropertyValue('table', NULL))) {
             $this->name = $table;
         } else {
-            throw new \InvalidArgumentException('empty table declaration');
+            throw new \ExpectedErrorException('empty table declaration', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         if (($tname = $this->modelClass->getStaticPropertyValue('tname', NULL))) {
             $this->tname = $tname;
         } else {
-            throw new \InvalidArgumentException('empty tname declaration');
+            throw new \ExpectedErrorException('empty tname declaration', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         if (($noAutoCallback = $this->modelClass->getStaticPropertyValue('noAutoCallback', NULL))) {
             $this->noAutoCallback = $noAutoCallback;
@@ -153,7 +152,7 @@ final class Table
         $this->cacheable = $this->modelClass->getStaticPropertyValue('cacheable', FALSE);
         $columns = $this->modelClass->getStaticPropertyValue('columns', NULL);
         if (is_null($columns)) {
-            throw new \InvalidArgumentException('emptyt columns declaration');
+            throw new \ExpectedErrorException('emptyt columns declaration', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         $this->columns = array();
@@ -164,7 +163,7 @@ final class Table
             // shard column
             if ($column->shard) {
                 if (!is_null($this->shardColumn)) {
-                    throw new \InvalidArgumentException('More than one column declared as shard');
+                    throw new \ExpectedErrorException('More than one column declared as shard', self::ERRNO_SYS_INVALID_ARGUMENT);
                 } else {
                     $this->shardColumn = $column->name;
                 }
@@ -236,6 +235,18 @@ final class Table
     }
 
     /**
+     * Query across all shards.
+     *
+     * @param string $sql
+     * @param array $args
+     * @return \Driver\Db\DbResult
+     */
+    public function queryShards($sql, array $args = array()) {
+        return \Driver\DbFactory::instance()
+            ->queryShards($this->pool, $this->name, $sql, $args);
+    }
+
+    /**
      * Global query.
      *
      * Same as query except that DB is not sharded.
@@ -271,6 +282,22 @@ final class Table
             $sql .= " WHERE $whereClause";
         }
         return $this->query($hintId, $sql, $args, $cacheKey)
+            ->getResults();
+    }
+
+    /**
+     * @param string $whereClause
+     * @param array $args
+     * @param string $columns
+     * @return array List of db row
+     */
+    public function selectShards($whereClause, array $args = array(),
+                                 $columns = '*') {
+        $sql = "SELECT $columns FROM {$this->name}";
+        if (trim($whereClause)) {
+            $sql .= " WHERE $whereClause";
+        }
+        return $this->queryShards($sql, $args)
             ->getResults();
     }
 

@@ -2,7 +2,7 @@
 
 namespace Driver\Cache;
 
-class Memcached implements Driver
+class Memcached implements Driver, \Consts\ErrnoConst
 {
     private $_expiration;
 
@@ -14,7 +14,7 @@ class Memcached implements Driver
     public function __construct(array $config)
     {
         if (empty($config) || empty($config['servers'])) {
-            throw new \InvalidArgumentException('Invalid config');
+            throw new \ExpectedErrorException('Invalid config: ' . json_encode($config), self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (!empty($config['expiration'])) {

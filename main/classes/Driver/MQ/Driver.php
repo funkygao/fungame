@@ -12,12 +12,13 @@ interface Driver {
     public function init($tube);
 
     /**
-     * @param string $handlerName
      * @param array $message
+     * @param array $channels
+     * @param int $from
      * @param int $delay
      * @return int Job id of new message
      */
-    public function produce($handlerName, array $message, $delay = 0);
+    public function produce(array $message, array $channels, $from, $delay = 0);
 
     /**
      * @param int $timeout
@@ -40,6 +41,14 @@ interface Driver {
      * @return void
      */
     public function ackFail($job);
+
+    /**
+     * Move failed jobs to ready queue.
+     *
+     * @param int $max
+     * @return int Number of revived jobs
+     */
+    public function revive($max);
 
 }
 

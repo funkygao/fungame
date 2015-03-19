@@ -5,7 +5,7 @@ namespace Driver\Cache;
 use fun\rpc\TMemcacheData,
     fun\rpc\TCacheMissed;
 
-class Fae implements Driver {
+class Fae implements Driver, \Consts\ErrnoConst {
     const MMC_SERIALIZED = 1;
     const MMC_COMPRESSED = 2;
 
@@ -14,7 +14,7 @@ class Fae implements Driver {
 
     public function __construct(array $config) {
         if (!isset($config['pool'])) {
-            throw new \InvalidArgumentException('undefined cache pool');
+            throw new \ExpectedErrorException('undefined cache pool', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         $this->_pool = $config['pool'];

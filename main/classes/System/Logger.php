@@ -35,7 +35,7 @@ final class Logger implements \Consts\LoggerConst {
     }
 
     public function info($category, $msg) {
-        $this->_log($category, $msg);
+        $this->_log($category, 'INFO', $msg);
     }
 
     public function debug($category, $msg) {
@@ -47,20 +47,47 @@ final class Logger implements \Consts\LoggerConst {
                 'line' => $caller['line'],
             );
         }
-        $this->_log($category, $msg);
+        $this->_log($category, 'DEBUG', $msg);
     }
 
     public function warn($category, $msg) {
-        $this->_log($category, $msg);
+        $this->_log($category, 'WARN', $msg);
     }
 
     public function error($category, $msg) {
-        $this->_log($category, $msg);
+        $this->_log($category, 'ERROR', $msg);
     }
 
     public function exception(\Exception $ex) {
         // category is fixed
-        $this->_log(self::CATEGORY_EXCEPTION, $this->_getExceptionLogMessage($ex));
+        $this->_log(self::CATEGORY_EXCEPTION, 'FATAL', $this->_getExceptionLogMessage($ex));
+    }
+
+    /**
+     * @param string $event the event name
+     * @param string $uid
+     * @param array $properties
+     */
+    public function traceBI($event, $uid, array $properties) {
+        // http://config.funplusgame.com/get-bi-metadata
+        // http://wiki.ifunplus.cn/display/BI/payment
+        // https://docs.google.com/spreadsheets/d/1ILr_Zn_Hhn_zakWJ7X8v5YbzKoniczxbSKqX58nrpXY/edit#gid=0
+        $sessionId = '';
+        if (isset($properties['session_id'])) {
+            $sessionId = $properties['session_id'];
+            unset($properties['session_id']);
+        }
+
+        $msg = array(
+            'bi_version' => '1.2',
+            'app_id' => 'dragon.global.prod',
+            'ts' => time(),
+            'event' => $event,
+            'user_id' => $uid,
+            'session_id' => $sessionId,
+            'properties' => $properties,
+        );
+        $this->_log('bi', 'TRACE', json_encode($msg), FALSE);
     }
 
     public function panic($category, $msg, \Exception $ex = NULL) {
@@ -74,7 +101,7 @@ final class Logger implements \Consts\LoggerConst {
             );
         }
         $msg['_trace'] = $this->_getExceptionLogMessage($ex);
-        $this->_log($category, $msg);
+        $this->_log($category, 'PANIC', $msg);
 
         throw $ex; // stop the world
     }
@@ -86,6 +113,7 @@ final class Logger implements \Consts\LoggerConst {
             'file' => $ex->getFile(), // TODO strip basedir
             'line' => $ex->getLine(),
             'trace' => $ex->getTrace(),
+            'code' => $ex->getCode(),
             'request' => \System\RequestHandler::getInstance()->request(),
         );
     }
@@ -94,9 +122,11 @@ final class Logger implements \Consts\LoggerConst {
      * Invoke System\Appender\Factory::register BEFORE this.
      *
      * @param string $category
+     * @param string $level
      * @param array|string $msg
+     * @param bool $addHeader
      */
-    private function _log($category, $msg) {
+    private function _log($category, $level, $msg, $addHeader = TRUE) {
         if (is_array($msg)) {
             $msg['_ctx'] = request_ctx();
             $request = \System\RequestHandler::getInstance();
@@ -105,10 +135,14 @@ final class Logger implements \Consts\LoggerConst {
             if ($cmds) {
                 $msg['_ctx']['cmds'] = $cmds;
             }
+            $ua = $request->getParams()['ua'];
+            if ($ua) {
+                $msg['_ctx']['ua'] = $ua;
+            }
             $msg = json_encode($msg);
         }
 
-        self::$_handler->append($category, $msg);
+        self::$_handler->append($category, $level, $msg, $addHeader);
     }
 
 }

@@ -2,153 +2,103 @@
 
 namespace Driver\Db;
 
-/**
- * From siteConfig build the ShardInfo Object. Since the format is different
- * between database roles, this unifies the exposure - allowing to change of
- * the source Config without messing up the app.
- *
- * @author Dathan Vance Pattishall
- */
-class ShardInfo
-{
-
-    private $config = NULL;
-
-    protected $pool = NULL;
-    protected $shardId = 0;
-    protected $slug = NULL;
-
-    protected $isMasterMaster = 0;
-    protected $isMasterSlave = 0;
-
-    public function getSlug()
-    {
-        return $this->slug;
-    }
-
-    public function getPool()
-    {
-        return $this->pool;
-    }
-
-    public function getSID()
-    {
-        return $this->shardId;
-    }
+final class ShardInfo
+    implements \Consts\DbConst, \Consts\ErrnoConst {
 
     /**
-     * constructor - turns the source config into ShardInfo
-     *
-     * @param string $pool
-     * @param int $shardId
-     * @throws \InvalidArgumentException
+     * @var array
      */
-    protected function __construct($pool, $shardId = 0)
-    {
-        static $poolNameMappings = array(
-            'tools' => 'tools',
-            'lookup' => 'ShardLookup',
-            'user' => 'UserShardN',
-            'alliance' => 'AllianceShardN',
-            'world' => 'WorldShardN',
-            'chat' => 'ChatShardN',
-            'tickets' => 'Tickets',
-        );
-        $poolName = $poolNameMappings[$pool];
-        if (!$poolName) {
-            throw new \InvalidArgumentException("Not a valid pool ($pool)");
+    private $config;
+
+    private $pool;
+    private $shardId;
+
+    private $isMasterMaster = 0;
+    private $isMasterSlave = 0;
+
+    private static $_poolShardMappings = array(
+        // non-sharded
+        self::POOL_TOOLS => array('tools'),
+        self::POOL_LOOKUP => array('ShardLookup'),
+        self::POOL_GLOBAL => array('Global'),
+        self::POOL_TICKETS => array('Tickets'),
+
+        // sharded
+        self::POOL_USER => array('UserShard', 'UserLookup'),
+        self::POOL_ALLIANCE => array('AllianceShard', 'AllianceLookup'),
+        self::POOL_WORLD => array('WorldShard', 'WorldLookup'),
+        self::POOL_CHAT => array('ChatShard', 'ChatLookup'),
+    );
+
+    private function __construct($pool, $shardId = 0) {
+        list($shardName, $needShardLookup, $_) = self::pool2shard($pool);
+        if (!$needShardLookup) {
+            $shardId = '';
         }
-        if ($poolName[strlen($poolName) - 1] == 'N') {
-            $poolName = substr($poolName, 0, strlen($poolName) - 1) . $shardId;
+
+        // read database config file and validate
+        $this->config = \System\Config::get('database', $shardName . $shardId);
+        if (!$this->config) {
+            throw new \ExpectedErrorException("Cannot find db config for: $pool:$shardId", self::ERRNO_SYS_INVALID_ARGUMENT);
         }
-        $this->config = \System\Config::get('database', $poolName);
+        if (!isset($this->config['database']) || !isset($this->config['host'])
+            || !isset($this->config['username']) || !isset($this->config['password'])) {
+            throw new \ExpectedErrorException("Invalid db config: " . json_encode($this->config), self::ERRNO_SYS_INVALID_ARGUMENT);
+        }
+
         $this->pool = $pool;
         $this->shardId = $shardId;
-        $this->slug = "{$pool}-{$shardId}";
     }
 
-    protected static $_instances = array();
+    public static function pool2shard($pool) {
+        $shard = self::$_poolShardMappings[$pool];
+        if (!$shard) {
+            throw new \ExpectedErrorException("Unexpected pool ($pool)", self::ERRNO_SYS_INVALID_ARGUMENT);
+        }
+
+        $needShardLookup = FALSE;
+        $shardLookupTable = '';
+        if (count($shard) > 1) {
+            $needShardLookup = TRUE;
+            $shardLookupTable = $shard[1];
+        }
+
+        return array($shard[0], $needShardLookup, $shardLookupTable);
+    }
 
     /**
-     * return 1 instance of the pool/role type shard - the underlying connection
-     * may be the same if master == slave for
-     *
      * @param string $pool
      * @param int $shardId
      * @return ShardInfo
      */
-    public static function factory($pool, $shardId)
-    {
+    public static function factory($pool, $shardId) {
+        static $instances = array();
         $key = "{$pool}-{$shardId}";
-        if (isset(self::$_instances[$key])) {
-            return self::$_instances[$key];
+        if (!isset($instances[$key])) {
+            $instances[$key] = new self($pool, $shardId);
         }
 
-        $info = new self($pool, $shardId);
-
-        self::$_instances[$info->getSlug()] = $info;
-
-        return $info;
-
+        return $instances[$key];
     }
 
-    /**
-     * sets various vars
-     *
-     * @return void
-     */
-    protected function init()
-    {
-
+    public function getConfig() {
+        return $this->config;
     }
 
-    public function getDatabaseName()
-    {
-        if (!$this->config['database']) {
-            throw new \InvalidArgumentException("Database was not set for Pool: {$this->pool} and ShardId: {$this->shardId}");
-        }
+    public function getSlug() {
+        return "{$this->pool}-{$this->shardId}";
+    }
 
+    public function getDatabaseName() {
         return $this->config['database'];
     }
-
-    public function getHosts()
-    {
-        if (isset($this->config['host'])) {
-            return array($this->config['host']);
-        }
-
-        throw new \InvalidArgumentException("Host is not set for Pool: {$this->pool} and ShardId: {$this->shardId}");
-    }
-
-    /**
-     * return the database user for the role
-     *
-     * @return string
-     */
-    public function getDatabaseUser()
-    {
-        return $this->config['username'];
-    }
-
-    /**
-     * database password
-     *
-     * @return string
-     */
-    public function getDatabasePassword()
-    {
-        return $this->config['password'];
-    }
-
 
     /**
      * tests the type
      *
      * @return string
      */
-    public function type()
-    {
-
+    public function type() {
         if ($this->isMasterMaster == 0 && $this->isMasterSlave == 0) {
             return 'just-master';
         }

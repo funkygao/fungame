@@ -152,8 +152,6 @@ final class Application
     }
 
     public function execute() {
-        $faeClientBroken = FALSE; // fae如果抛出异常，则这个连接就断了
-
         try {
             $globalMaintenanceDuration = \System\Config::maintenanceDuration();
             if ($globalMaintenanceDuration) {
@@ -162,6 +160,12 @@ final class Application
 
             $class = self::$_requestHandler->request('class');
             $action = self::$_requestHandler->request('method');
+            if (API_VER != 'v1') {
+                // backwards compatibility
+                $suffix = str_replace('.', '_', API_VER); // '.' not allowed in func name
+                // CallService::init_v1_1 (if API_VER = v1.1)
+                //$action .= '_' . $suffix; // TODO turn this on
+            }
             $params = self::$_requestHandler->getParams();
 
             self::$_logger->debug(self::CATEGORY_REQUEST, array(
@@ -205,6 +209,12 @@ final class Application
                 throw $ex;
             }
 
+            if (self::$_requestHandler->request('race_mode')) {
+                // 前端传入这个参数，来强制后端模拟并发、数据竞争场景
+                // TODO kill it before release
+                sleep(rand(5, 10));
+            }
+
             $flushTime = \System\Flusher::getInstance()->flushAll(); // may throw PDOException
             self::$_responseHandler->setCallbackTime($flushTime);
             \Driver\DbFactory::instance()->commitAll();
@@ -231,7 +241,7 @@ final class Application
                 self::$_responseHandler->succeed()
                     ->setPayload($result);
             }
-        } catch (\PDOException $ex) {
+        } catch (\PDOException $ex) { // mysql driver exception, never happens if fae
             // will lead to db data inconsistency because of db write buffer
             // some system use MQ to implement internal rollback mechanism
             // out log 'IS' MQ for eventual consistency
@@ -245,10 +255,10 @@ final class Application
                 'redo' => \Model\Base\Table::getRedoLog(),
             ));
 
-            \Model\Base\ActiveRecord::undoCreates();
             self::$_logger->exception($ex);
+            \Model\Base\ActiveRecord::undoCreates();
             $this->_setExceptionResponsePayload($ex, self::ERRNO_EXCEPTION_PDO);
-        } catch (\RedisException $ex) {
+        } catch (\RedisException $ex) { // redis driver exception, never happens if fae
             \Driver\DbFactory::instance()->rollbackAll();
 
             self::$_logger->error(self::CATEGORY_REDOLOG, array(
@@ -258,34 +268,31 @@ final class Application
                 'redo' => \Model\Base\Table::getRedoLog(),
             ));
 
-            \Model\Base\ActiveRecord::undoCreates();
             self::$_logger->exception($ex);
+            \Model\Base\ActiveRecord::undoCreates();
             $this->_setExceptionResponsePayload($ex, self::ERRNO_EXCEPTION_REDIS);
         } catch (\MaintainException $ex) {
             // 系统挂维护, ex.message 表示多少分钟后用户可以重试
-            \Model\Base\ActiveRecord::undoCreates();
             self::$_responseHandler->underMaintenance($ex->getMessage());
-        } catch (\ShardLockException $ex) {
             \Model\Base\ActiveRecord::undoCreates();
-            self::$_responseHandler->underMaintenance(60 * 24);
-        } catch (\HttpNotFoundException $ex) {
+        } catch (\HttpNotFoundException $ex) { // invalid request url
             \Driver\DbFactory::instance()->rollbackAll();
 
-            \Model\Base\ActiveRecord::undoCreates();
             self::$_responseHandler->notFound();
+            \Model\Base\ActiveRecord::undoCreates();
         } catch (\LockException $ex) {
             self::$_logger->warn('lock', array(
                 'accquire' => 'fail',
                 'uid' => $ex->getMessage(),
             ));
 
-            \Model\Base\ActiveRecord::undoCreates();
             self::$_responseHandler->locked();
+            \Model\Base\ActiveRecord::undoCreates();
         } catch (\ExpectedErrorException $ex) {
             \Driver\DbFactory::instance()->rollbackAll();
 
-            \Model\Base\ActiveRecord::undoCreates();
             self::$_logger->exception($ex);
+            \Model\Base\ActiveRecord::undoCreates();
             self::$_responseHandler->fail()
                 ->setPayload($ex->getPayload());
         } catch (\RestartGameException $ex) {
@@ -295,36 +302,48 @@ final class Application
                 // TODO log cheat
             }
 
-            \Model\Base\ActiveRecord::undoCreates();
             self::$_logger->exception($ex);
+            \Model\Base\ActiveRecord::undoCreates();
             self::$_responseHandler->restartGame()
                 ->setMessage($ex->getMessage()); // FIXME hide this in prod env
-        } catch (\OptimisticLockException $ex) {
+        } catch (\OptimisticLockException $ex) { // TODO kill this
             \Driver\DbFactory::instance()->rollbackAll();
 
+            self::$_logger->exception($ex);
             \Model\Base\ActiveRecord::undoCreates();
-            self::$_logger->exception($ex);
             $this->_setExceptionResponsePayload($ex, self::ERRNO_EXCEPTION_OPTIMISTICLOCK);
-        } catch (\InvalidArgumentException $ex) {
-            self::$_logger->exception($ex);
-
-            self::$_responseHandler->restartGame()
-                ->setMessage($ex->getMessage());
         } catch (\Funplus\Thrift\serverGated_serverGatedException $ex) {
             self::$_logger->exception($ex);
+            \Model\Base\ActiveRecord::undoCreates();
 
             self::$_responseHandler->restartGame()
                 ->setMessage($ex->getMessage());
-        } catch (\Thrift\Exception\TException $ex) {
-            $faeClientBroken = TRUE;
-
-            // unexpected exception
+        } catch (\Thrift\Exception\TTransportException $ex) { // fae连接问题
             self::$_logger->exception($ex);
 
-            \Model\Base\ActiveRecord::undoCreates(); // FIXME can do that while fae broken?
+            \Model\Base\ActiveRecord::undoCreates();
 
             self::$_responseHandler->restartGame()
                 ->setMessage($ex->getMessage());
+
+            // reconnect to fae
+            \FaeEngine::reopenTransport();
+        } catch (\Thrift\Exception\TApplicationException $ex) { // fae返回的业务异常
+            self::$_logger->exception($ex);
+
+            \Model\Base\ActiveRecord::undoCreates();
+
+            if (str_endswith($ex->getMessage(), 'entity being locked')) {
+                // TODO maintain mode, this user is being migrated
+                // TODO test this
+                self::$_responseHandler->underMaintenance($ex->getMessage());
+            } else if (str_endswith($ex->getMessage(), 'circuit open')) {
+                // 无计可施，挂维护 FIXME test it
+                self::$_responseHandler->underMaintenance($ex->getMessage());
+            } else {
+                self::$_responseHandler->restartGame()
+                    ->setMessage($ex->getMessage());
+            }
         } catch (\Exception $ex) {
             \Driver\DbFactory::instance()->rollbackAll();
 
@@ -335,18 +354,31 @@ final class Application
             $this->_setExceptionResponsePayload($ex, self::ERRNO_EXCEPTION_UNKNOWN);
         }
 
-        \System\LockStep::releaseAll();
+        \System\LockStep::releaseAll(); // might throw exception FIXME
 
         $payloadSize = self::$_responseHandler->printResponse();
 
-        if (\FaeEngine::isConnected() && !$faeClientBroken) {
-            \FaeEngine::client()->gm_latency(
-                \FaeEngine::ctx(),
-                (int)((microtime(TRUE) - REQUEST_TIME_FLOAT) * 1000),
-                $payloadSize
-            );
+        if (\FaeEngine::isConnected() && $this->_shouldReportLatency($class, $action)) {
+            \System\GameEngine::instance()->reportRequestSummary($payloadSize);
         }
 
+    }
+
+    private function _shouldReportLatency($class, $method) {
+        $ignoredClasses = array(
+            'debug' => TRUE,
+            'tools' => TRUE,
+        );
+        $ignoredMethods = array(
+            'ping' => TRUE,
+            'manifest' => TRUE,
+        );
+        
+        if (isset($ignoredClasses[strtolower($class)]) || isset($ignoredMethods[$method])) {
+            return FALSE;
+        }
+
+        return TRUE;
     }
 
 }

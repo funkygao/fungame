@@ -7,9 +7,9 @@ namespace Driver\Cache;
  *
  *              Driver
  *                 |
- *  +-------------------------------------+
- *  |           |           |        |    |
- * Fae      Memcache    Memcached   Apc  Mock
+ *  +--------------------------------+
+ *  |      |           |        |    |    
+ * Fae  Memcache  Memcached    Apc  Redis
  *
  * </pre>
  */

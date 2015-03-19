@@ -40,35 +40,38 @@ final class Pubnub implements Driver {
         );
     }
 
-    public function publish($channel, $cmd, array $params) {
+    public function publish($channel, $cmd, array $payload, array $data = null, $flag = 0, $sender = 0) {
         $result = self::$_pubnubHandle->publish(array(
             'channel' => $channel,
-            'message' => $this->_pack($cmd, $params),
+            'message' => $this->_pack($cmd, $payload, $data),
         )); // [1, 'Sent', 14042129827325508]
 
         if (is_array($result) && $result[1] == 'Sent') {
             return TRUE;
         }
+        $this->_getLogger()->warn('pubnub.log', array(
+            'errmsg' => $result,
+        ));
 
         return FALSE;
     }
 
-    protected function _pack($cmd, $params) {
-        $call['cmd'] = $cmd;
-        $call['params'] = $params;
-        return array(
-            "sender" => "server",
-            "receiver" => "you",
-            "type" => self::CLIENT_MSG_TYPE,
-            "params" => array(
-                "call" => $call,
-            )
-        );
+    protected function _pack($cmd, $payload, $data = null) {
+        $msg = array();
+        $msg['cmd'] = $cmd;
+        $msg['payload'] = $payload;
+        $msg['data'] = $data;
+        $msg['time'] = \System\RequestHandler::getInstance()->currentOpTime(); // so that client(subscriber) knows the sequence order
+        return $msg;
     }
 
     // only for testing, not used in production code
     public function conn() {
         return self::$_pubnubHandle;
+    }
+
+    private function _getLogger() {
+        return \System\Logger::getLogger(get_class($this));
     }
 
 }

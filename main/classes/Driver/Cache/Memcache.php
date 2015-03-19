@@ -2,9 +2,11 @@
 
 namespace Driver\Cache;
 
-class Memcache implements Driver
+class Memcache implements Driver, \Consts\ErrnoConst
 {
     private $_expiration;
+
+    private $_compress = FALSE;
 
     /**
      * @var \Memcached
@@ -14,7 +16,7 @@ class Memcache implements Driver
     public function __construct(array $config)
     {
         if (empty($config) || empty($config['servers'])) {
-            throw new \InvalidArgumentException('Invalid config');
+            throw new \ExpectedErrorException('Invalid config', self::ERRNO_SYS_INVALID_ARGUMENT);
         }
 
         if (!empty($config['expiration'])) {
@@ -31,13 +33,13 @@ class Memcache implements Driver
     public function add($key, $value, $expiration = NULL)
     {
         $expiration = $expiration === NULL ? $this->_expiration : $expiration;
-        return $this->_backend->add($key, $value, $expiration);
+        return $this->_backend->add($key, $value, $this->_compress, $expiration);
     }
 
     public function set($key, $value, $expiration = NULL)
     {
         $expiration = $expiration === NULL ? $this->_expiration : $expiration;
-        return $this->_backend->set($key, $value, $expiration);
+        return $this->_backend->set($key, $value, $this->_compress, $expiration);
     }
 
     public function get($key)

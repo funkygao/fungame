@@ -2,8 +2,8 @@
 
 namespace Driver;
 
-final class CacheFactory implements Cache\Driver
-{
+final class CacheFactory implements Cache\Driver, \Consts\ErrnoConst {
+
 	protected static $instances = array();
 
     /**
@@ -21,7 +21,7 @@ final class CacheFactory implements Cache\Driver
      * @param string $driver
      * @return CacheFactory
      */
-    public static function instance($pool = 'default', $driver = 'memcached') {
+    public static function instance($pool = 'default', $driver = 'fae') {
 		if (!isset(self::$instances[$pool])) {
 			self::$instances[$pool] = new self($pool, $driver);
 		}
@@ -31,11 +31,11 @@ final class CacheFactory implements Cache\Driver
     /**
      * @param string $pool
      * @param string $driver
-     * @throws \InvalidArgumentException
+     * @throws \ExpectedErrorException
      */
     protected function __construct($pool, $driver) {
         if(($config = \System\Config::get('cache', $pool, NULL)) === NULL) {
-            throw new \InvalidArgumentException('cache.undefined_pool ' . $pool);
+            throw new \ExpectedErrorException('cache.undefined_pool ' . $pool, self::ERRNO_SYS_INVALID_ARGUMENT);
         }
         $config['pool'] = $pool;
 
@@ -50,17 +50,11 @@ final class CacheFactory implements Cache\Driver
 	}
 
 	public function set($key, $value, $expiration = NULL) {
-		if (is_resource($value)) {
-			throw new \InvalidArgumentException('Cache: Resources given.');
-		}
 		$key = $this->_sanitize($key);
 		return $this->_driver->set($key, $value, $expiration);
 	}
 
 	public function add($key, $value, $expiration = NULL) {
-		if (is_resource($value)) {
-			throw new \InvalidArgumentException('Cache: Resources given.');
-		}
 		$key = $this->_sanitize($key);
 		return $this->_driver->add($key, $value, $expiration);
 	}
@@ -85,8 +79,9 @@ final class CacheFactory implements Cache\Driver
 		// Change slashes and spaces to underscores
 		$newKey = str_replace(array('/' , '\\' , ' '), '_', $key);
 		if ($newKey !== $key) {
-            throw new \InvalidArgumentException("Invalid cache key: $key");
+            throw new \ExpectedErrorException("Invalid cache key: $key", self::ERRNO_SYS_INVALID_ARGUMENT);
 		}
 		return $newKey;
 	}
+
 }
